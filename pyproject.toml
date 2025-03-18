@@ -1,0 +1,26 @@
+[project]
+name = "koreo-controller"
+version = "0.1.0"
+description = "Koreo Controller runs Koreo Core as a Kubernetes Controller."
+authors = [
+    {name = "Eric Larssen", email = "eric.larssen@realkinetic.com"},
+    {name = "Robert Kluin", email = "robert.kluin@realkinetic.com"},
+]
+dependencies = ["kopf>=1.37.4"]
+requires-python = "==3.13.*"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "-e file:///${PROJECT_ROOT}/../koreo-core#egg=koreo",
+]
+
+[tool.pdm]
+distribution = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.396",
+    "black>=25.1.0",
+]
