@@ -11,6 +11,8 @@ from koreo.result import is_unwrapped_ok
 from koreo.workflow import prepare
 from koreo.workflow.structure import Workflow
 
+from controller.custom_workflow import start_controller
+
 __workflow_custom_crd_index = defaultdict(str)
 __custom_crd_wokflow_index = defaultdict(set[str])
 
@@ -49,6 +51,10 @@ def _workflow_post_prepare(cache_key: str, workflow: Workflow):
     _index_workflow_custom_crd(
         workflow=cache_key,
         custom_crd=f"{crd_ref.api_group}:{crd_ref.kind}:{crd_ref.version}",
+    )
+
+    start_controller(
+        group=crd_ref.api_group, kind=crd_ref.kind, version=crd_ref.version
     )
 
 
