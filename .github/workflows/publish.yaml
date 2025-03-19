@@ -36,9 +36,9 @@ jobs:
 
       - name: Build and tag Docker image
         run: |
-          docker build -t us-docker.pkg.dev/koreo-dev/koreo-controller:latest -t us-docker.pkg.dev/koreo-dev/koreo-controller:$TAG_NAME .
+          docker build -t us-docker.pkg.dev/koreo-dev/koreo/controller:latest -t us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME .
 
       - name: Push image to Artifact Registry
         run: |
-          docker push us-docker.pkg.dev/koreo-dev/koreo-controller:$TAG_NAME
-          docker push us-docker.pkg.dev/koreo-dev/koreo-controller:latest
+          docker push us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME
+          docker push us-docker.pkg.dev/koreo-dev/koreo/controller:latest
