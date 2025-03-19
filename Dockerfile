@@ -10,7 +10,6 @@ WORKDIR /app
 RUN mkdir __pypackages__ && pdm sync --prod --no-editable
 
 COPY src/ /app/src
-COPY crd/ /app/crd
 
 FROM python:3.13-slim
 RUN apt-get update && apt-get -y install git
@@ -18,7 +17,6 @@ RUN apt-get update && apt-get -y install git
 COPY --from=build-env /app/__pypackages__/3.13/lib /app/pkgs
 COPY --from=build-env /app/__pypackages__/3.13/bin /app/bin/
 COPY --from=build-env /app/src /app/src
-COPY --from=build-env /app/crd /app/crd
 
 RUN adduser --system --no-create-home --uid 1000 nonroot
 USER nonroot
