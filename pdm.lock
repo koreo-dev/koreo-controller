@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:da2c88d994934e6d9e731072a8e565b90bc46edd8884beca02a92d91e85ba3fa"
+content_hash = "sha256:0d38432c82ea12b1428402142c088409e67476af7d67a1a00ef8e5d2f11c2541"
 
 [[metadata.targets]]
 requires_python = "==3.13.*"
@@ -421,7 +421,7 @@ files = [
 
 [[package]]
 name = "koreo-core"
-version = "0.1.0"
+version = "0.1.1"
 requires_python = ">=3.13"
 summary = "Type-safe and testable KRM Templates and Workflows."
 groups = ["default"]
@@ -434,8 +434,8 @@ dependencies = [
     "uvloop==0.21.0",
 ]
 files = [
-    {file = "koreo_core-0.1.0-py3-none-any.whl", hash = "sha256:b1ceafb24e278e209e3bded798446cc1ab51ebab2221ca859e96526b7c604f6c"},
-    {file = "koreo_core-0.1.0.tar.gz", hash = "sha256:05f2616e4526e963d8bf346d1f6558d380d41cfb75e08fb1e0e8408de14f5fcf"},
+    {file = "koreo_core-0.1.1-py3-none-any.whl", hash = "sha256:2019f702e33e651967c1a97de85e68bf84632d7a2e3b82698e1118b1c5d10af6"},
+    {file = "koreo_core-0.1.1.tar.gz", hash = "sha256:46a38673a3a3424f36b692c43a59f1c78ad0cc9767dcf4f407c639d6bab716b0"},
 ]
 
 [[package]]

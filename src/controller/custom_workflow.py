@@ -6,11 +6,10 @@ import celpy
 import kopf
 import kr8s
 
-from resources.k8s.conditions import Condition, update_condition
-
 from koreo.result import Retry, is_error, is_unwrapped_ok, raise_for_error
 
 from koreo.cache import get_resource_from_cache
+from koreo.conditions import Condition, update_condition
 from koreo.cel.encoder import convert_bools
 from koreo.workflow.reconcile import reconcile_workflow
 from koreo.workflow.registry import get_custom_crd_workflows
