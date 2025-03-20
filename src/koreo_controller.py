@@ -18,9 +18,8 @@ from koreo.value_function.prepare import prepare_value_function
 from koreo.value_function.structure import ValueFunction
 from koreo.workflow.structure import Workflow
 
-from workflow_prepare import prepare_workflow
-
 from controller import koreo_cache
+from controller.workflow_prepare_shim import prepare_workflow
 
 
 GROUP = "koreo.dev"

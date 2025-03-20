@@ -12,8 +12,9 @@ from koreo.cache import get_resource_from_cache
 from koreo.cel.encoder import convert_bools
 from koreo.conditions import Condition, update_condition
 from koreo.workflow.reconcile import reconcile_workflow
-from koreo.workflow.registry import get_custom_crd_workflows
 from koreo.workflow.structure import Workflow
+
+from controller.workflow_registry import get_custom_crd_workflows
 
 
 @kopf.on.login()
@@ -92,6 +93,30 @@ def start_controller(group: str, kind: str, version: str):
         kr8s_api = kr8s.api()
 
         workflow_keys = get_custom_crd_workflows(custom_crd=key)
+
+        if not workflow_keys:
+            message = f"Failed to find Workflow for `{key}`"
+            condition = Condition(
+                type="Ready",
+                reason="NoWorkflow",
+                message=message,
+                status="false",
+                location="custom_workflow.reconcile",
+            )
+            conditions = update_condition(conditions=[], condition=condition)
+
+            patch.update(
+                {
+                    "status": {
+                        "conditions": conditions,
+                        "koreo": {
+                            "errors": message,
+                            "locations": f"custom_workflow.reconcile({key})",
+                        },
+                    }
+                }
+            )
+            raise kopf.TemporaryError(message, delay=120)
 
         owner = (
             f"{meta.namespace}",

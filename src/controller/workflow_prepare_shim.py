@@ -1,4 +1,3 @@
-from collections import defaultdict
 import asyncio
 import time
 import logging
@@ -12,9 +11,10 @@ from koreo.workflow import prepare
 from koreo.workflow.structure import Workflow
 
 from controller.custom_workflow import start_controller
-
-__workflow_custom_crd_index = defaultdict(str)
-__custom_crd_wokflow_index = defaultdict(set[str])
+from controller.workflow_registry import (
+    index_workflow_custom_crd,
+    unindex_workflow_custom_crd,
+)
 
 _DEREGISTERERS: dict[str, asyncio.Task] = {}
 
@@ -34,7 +34,7 @@ async def prepare_workflow(cache_key: str, spec: dict):
 
 def _workflow_post_prepare(cache_key: str, workflow: Workflow):
     if not workflow.crd_ref or not is_unwrapped_ok(workflow):
-        _unindex_workflow_custom_crd(workflow=cache_key)
+        unindex_workflow_custom_crd(workflow=cache_key)
         return
 
     deletor_name = f"DeleteWorkflow:{cache_key}"
@@ -48,7 +48,7 @@ def _workflow_post_prepare(cache_key: str, workflow: Workflow):
         )
 
     crd_ref = workflow.crd_ref
-    _index_workflow_custom_crd(
+    index_workflow_custom_crd(
         workflow=cache_key,
         custom_crd=f"{crd_ref.api_group}:{crd_ref.kind}:{crd_ref.version}",
     )
@@ -56,42 +56,6 @@ def _workflow_post_prepare(cache_key: str, workflow: Workflow):
     start_controller(
         group=crd_ref.api_group, kind=crd_ref.kind, version=crd_ref.version
     )
-
-
-def get_custom_crd_workflows(custom_crd: str) -> list[str]:
-    return list(__custom_crd_wokflow_index[custom_crd])
-
-
-def _index_workflow_custom_crd(workflow: str, custom_crd: str):
-    prior_custom_crd = __workflow_custom_crd_index[workflow]
-
-    if prior_custom_crd == custom_crd:
-        return
-
-    if workflow in __custom_crd_wokflow_index[prior_custom_crd]:
-        __custom_crd_wokflow_index[prior_custom_crd].remove(workflow)
-
-    __custom_crd_wokflow_index[custom_crd].add(workflow)
-
-    __workflow_custom_crd_index[workflow] = custom_crd
-
-
-def _unindex_workflow_custom_crd(workflow: str):
-    prior_custom_crd = __workflow_custom_crd_index[workflow]
-
-    if not prior_custom_crd:
-        return
-
-    if workflow in __custom_crd_wokflow_index[prior_custom_crd]:
-        __custom_crd_wokflow_index[prior_custom_crd].remove(workflow)
-
-    del __workflow_custom_crd_index[workflow]
-
-
-def _reset_registry():
-    global __workflow_custom_crd_index, __custom_crd_wokflow_index
-    __workflow_custom_crd_index = defaultdict(str)
-    __custom_crd_wokflow_index = defaultdict(set[str])
 
 
 class WorkflowDeleteor: ...
@@ -133,7 +97,7 @@ async def _deindex_crd_on_delete(cache_key: str):
 
                     logger.debug(f"Deregistering CRD watches for Workflow {cache_key}")
 
-                    _unindex_workflow_custom_crd(workflow=cache_key)
+                    unindex_workflow_custom_crd(workflow=cache_key)
 
                     break
 
