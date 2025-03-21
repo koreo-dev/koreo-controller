@@ -19,6 +19,7 @@ from koreo.value_function.structure import ValueFunction
 from koreo.workflow.structure import Workflow
 
 from controller import koreo_cache
+from controller import load_schemas
 from controller.workflow_prepare_shim import prepare_workflow
 
 
@@ -54,6 +55,7 @@ __tasks = set()
 
 
 def main():
+    load_schemas.load_koreo_resource_schemas()
 
     loop = uvloop.EventLoopPolicy().new_event_loop()
 
