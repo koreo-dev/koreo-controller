@@ -6,7 +6,7 @@ import celpy
 import kopf
 import kr8s
 
-from koreo.result import Retry, is_error, is_unwrapped_ok, raise_for_error
+from koreo.result import Retry, is_error, is_unwrapped_ok
 
 from koreo.cache import get_resource_from_cache
 from koreo.cel.encoder import convert_bools
@@ -215,7 +215,11 @@ def start_controller(group: str, kind: str, version: str):
                 "state_errors": state_errors if state_errors else None,
             }
             patch.update(object_patch)
-            raise_for_error(outcome)
+
+            if isinstance(outcome, Retry):
+                raise kopf.TemporaryError(outcome.message, delay=outcome.delay)
+
+            raise kopf.PermanentError(outcome.message)
 
         koreo_value = {
             "errors": None,
