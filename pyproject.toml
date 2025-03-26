@@ -29,3 +29,13 @@ tooling = [
     "pyright==1.1.397",
 ]
 all = ["koreo-core[test,tooling]"]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = [
+  "-v",
+  "--import-mode=importlib",
+  "--cov=src",
+  "--cov-branch",
+  "--cov-report=term-missing",
+]
