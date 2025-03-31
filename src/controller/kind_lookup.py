@@ -37,7 +37,6 @@ async def get_full_kind(
     _lookup_locks[lookup_kind] = lookup_lock
 
     for _ in range(3):
-        # TODO: This should probably have a timeout.
         try:
             async with asyncio.timeout(LOOKUP_TIMEOUT):
                 try:
