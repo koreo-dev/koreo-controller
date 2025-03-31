@@ -44,18 +44,16 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, values[1])
         self.assertEqual(0, values[2])
 
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(worker_task.done())
 
     async def test_user_retry_retries(self):
         retry_delay = 30
 
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return Retry(message="User Retry", delay=retry_delay)
@@ -89,11 +87,9 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(result.at, expect_time_after)
         self.assertLessEqual(result.at, time.monotonic() + retry_delay)
 
-        work_task.cancel()
-        try:
-            await work_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(work_task.done())
 
     async def test_user_retry_retries_multiple_times(self):
         retries = 20
@@ -102,7 +98,7 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
 
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return Retry(message="User Retry", delay=retry_delay)
@@ -136,16 +132,14 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(work_processor_called)
 
-        work_task.cancel()
-        try:
-            await work_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(work_task.done())
 
     async def test_user_perm_fail_does_not_retry(self):
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return PermFail(message="User PermFail")
@@ -169,16 +163,14 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(work_processor_called)
 
-        work_task.cancel()
-        try:
-            await work_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(work_task.done())
 
     async def test_reconcile_exception_retries(self):
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             raise Exception("unit-test-reconcile-error")
@@ -215,16 +207,14 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
             result.at, time.monotonic() + retry_delay_base + retry_delay_jitter
         )
 
-        work_task.cancel()
-        try:
-            await work_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(work_task.done())
 
     async def test_reconcile_exception_retries_exponential_backoff(self):
         work_processor_call_count = 0
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_call_count
             work_processor_call_count += 1
             raise Exception("unit-test-reconcile-error")
@@ -285,11 +275,9 @@ class TestWorker(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(retry_max_retries, work_processor_call_count)
 
-        work_task.cancel()
-        try:
-            await work_task
-        except asyncio.CancelledError:
-            pass
+        work.put_nowait(scheduler.Shutdown())
+        await asyncio.wait_for(work.join(), timeout=1)
+        self.assertTrue(work_task.done())
 
 
 class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
@@ -300,7 +288,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return True
@@ -310,11 +298,12 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             work_processor=work_processor, concurrency=test_worker_count
         )
 
-        try:
-            async with asyncio.timeout(0), asyncio.TaskGroup() as tg:
-                tg.create_task(scheduler.orchestrator(tg, requests, configuration))
-        except asyncio.TimeoutError:
-            pass
+        async with asyncio.timeout(0.1), asyncio.TaskGroup() as tg:
+            orchestrator_task = tg.create_task(
+                scheduler.orchestrator(tg, requests, configuration)
+            )
+
+            requests.put_nowait(scheduler.Shutdown())
 
         self.assertFalse(work_processor_called)
         self.assertEqual(test_worker_count, worker_task_mock.call_count)
@@ -325,10 +314,14 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         work_processor_called_values = {}
 
-        async def work_processor(**kwargs):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_call_count, work_processor_called_values
             work_processor_call_count += 1
-            work_processor_called_values = kwargs
+            work_processor_called_values = {
+                "payload": payload,
+                "sys_error_retries": sys_error_retries,
+                "user_retries": user_retries,
+            }
             return True
 
         configuration = scheduler.Configuration(
@@ -351,6 +344,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             async with asyncio.timeout(0.1), asyncio.TaskGroup() as tg:
                 tg.create_task(scheduler.orchestrator(tg, requests, configuration))
                 await asyncio.sleep(0)
+                requests.put_nowait(scheduler.Shutdown())
         except asyncio.TimeoutError:
             pass
 
@@ -362,7 +356,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
     async def test_not_ready_incoming_are_held(self, asyncio_wait_for_patch):
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return True
@@ -413,7 +407,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
     async def test_wait_timeout(self, asyncio_wait_for_patch):
         work_processor_called = False
 
-        async def work_processor(**_):
+        async def work_processor(payload, sys_error_retries, user_retries):
             nonlocal work_processor_called
             work_processor_called = True
             return True

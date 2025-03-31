@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, NamedTuple
+from typing import NamedTuple, Protocol
 import asyncio
 import heapq
 import logging
@@ -10,8 +10,15 @@ from koreo.result import PermFail, UnwrappedOutcome, is_error
 logger = logging.getLogger("koreo.controller.scheduler")
 
 
-class Configuration(NamedTuple):
-    work_processor: Callable[..., Awaitable[UnwrappedOutcome]]
+class WorkProcessor[T](Protocol):
+    async def __call__(
+        self, payload: T, sys_error_retries: int, user_retries: int
+    ) -> UnwrappedOutcome:
+        pass
+
+
+class Configuration[T](NamedTuple):
+    work_processor: WorkProcessor[T]
 
     concurrency: int = 5
 
@@ -33,10 +40,14 @@ class Request[T](NamedTuple):
     sys_error_retries: int = 0
 
 
+class Shutdown(NamedTuple):
+    at: float = 0
+
+
 async def orchestrator[T](
     tg: asyncio.TaskGroup,
-    requests: asyncio.PriorityQueue[Request[T]],
-    configuration: Configuration,
+    requests: asyncio.PriorityQueue[Request[T] | Shutdown],
+    configuration: Configuration[T],
 ):
     request_schedule: list[Request[T]] = []
     heapq.heapify(request_schedule)
@@ -44,7 +55,7 @@ async def orchestrator[T](
     workers: set[asyncio.Task] = set()
     workers_spawned = 0
 
-    work: asyncio.Queue[Request[T]] = asyncio.Queue()
+    work: asyncio.Queue[Request[T] | Shutdown] = asyncio.Queue()
 
     while True:
         # Ensure reconcilers are running
@@ -79,36 +90,64 @@ async def orchestrator[T](
             new_work_request = await asyncio.wait_for(
                 requests.get(), timeout=next_scheduled_work
             )
+            if isinstance(new_work_request, Shutdown):
+                # Shutdown and clear the requests queue.
+                requests.shutdown(immediate=True)
+
+                # Clear any pending work from the queue.
+                while True:
+                    try:
+                        work.get_nowait()
+                    except (asyncio.QueueEmpty, asyncio.QueueShutDown):
+                        break
+
+                # Add a shutdown for each worker.
+                for _ in workers:
+                    try:
+                        work.put_nowait(Shutdown())
+                    except (asyncio.QueueFull, asyncio.QueueShutDown):
+                        pass
+
+                # Shutdown the queue.
+                work.shutdown()
+                return
             heapq.heappush(request_schedule, new_work_request)
         except asyncio.TimeoutError:
             # Indicates it is time to run the next scheduled reconciliation
             continue
+        finally:
+            requests.task_done()
 
 
 async def _worker_task[T](
-    work: asyncio.Queue[Request[T]],
-    requests: asyncio.Queue[Request[T]],
+    work: asyncio.Queue[Request[T] | Shutdown],
+    requests: asyncio.Queue[Request[T] | Shutdown],
     configuration: Configuration,
 ):
     while True:
-        await _worker(
+        if shutdown := await _worker(
             work=work,
             requests=requests,
             configuration=configuration,
-        )
+        ):
+            return
 
 
 async def _worker[T](
-    work: asyncio.Queue[Request[T]],
-    requests: asyncio.Queue[Request[T]],
+    work: asyncio.Queue[Request[T] | Shutdown],
+    requests: asyncio.Queue[Request[T] | Shutdown],
     configuration: Configuration,
 ):
     request = await work.get()
+    if isinstance(request, Shutdown):
+        # This is normally done in the try's finally block.
+        work.task_done()
+        return True
 
     try:
         result = await asyncio.wait_for(
             configuration.work_processor(
-                payload=request.payload,
+                request.payload,
                 sys_error_retries=request.sys_error_retries,
                 user_retries=request.user_retries,
             ),
@@ -146,7 +185,7 @@ async def _worker[T](
                 f"({request.sys_error_retries} retries)"
             )
 
-        return
+        return False
 
     finally:
         work.task_done()
@@ -161,14 +200,14 @@ async def _worker[T](
                 user_retries=0,
             )
         )
-        return
+        return False
 
     if isinstance(result, PermFail):
         logger.info(
             f"PermFail from {configuration.work_processor.__qualname__} "
             f"({request.user_retries} retries)"
         )
-        return
+        return False
 
     # User-requested Retry case
     reconcile_at = time.monotonic() + result.delay
