@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-import kr8s
+import kr8s.asyncio
 
 from koreo.cache import delete_resource_from_cache, prepare_and_cache
 
@@ -19,7 +19,7 @@ async def load_cache(
 ):
     logging.info(f"Building initial {plural_kind}.{api_version} cache.")
 
-    resource_class = kr8s.objects.new_class(
+    k8s_resource_class = kr8s.objects.new_class(
         version=api_version,
         kind=kind_title,
         plural=plural_kind,
@@ -27,7 +27,7 @@ async def load_cache(
         scalable=False,
         asyncio=True,
     )
-    resources = resource_class.list(namespace=namespace)
+    resources = k8s_resource_class.list(namespace=namespace)
 
     async for resource in resources:
         logging.debug(f"Caching {resource.name}.")
@@ -53,10 +53,10 @@ async def maintain_cache(
 
     while True:
         try:
-            kr8s_api = kr8s.api()
+            kr8s_api = await kr8s.asyncio.api()
             kr8s_api.timeout = RECONNECT_TIMEOUT
 
-            resource_class = kr8s.objects.new_class(
+            k8s_resource_class = kr8s.objects.new_class(
                 version=api_version,
                 kind=kind_title,
                 plural=plural_kind,
@@ -65,7 +65,7 @@ async def maintain_cache(
                 asyncio=True,
             )
 
-            watcher = kr8s_api.async_watch(kind=resource_class, namespace=namespace)
+            watcher = kr8s_api.async_watch(kind=k8s_resource_class, namespace=namespace)
 
             async with asyncio.timeout(RECONNECT_TIMEOUT):
                 async for event, resource in watcher:
@@ -88,6 +88,8 @@ async def maintain_cache(
                         metadata=resource.metadata,
                         spec=resource.raw.get("spec"),
                     )
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
         except asyncio.TimeoutError:
             logging.debug(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch "
