@@ -3,13 +3,12 @@ import logging
 
 logging.basicConfig(format="%(name)s\t:%(levelname)s: %(message)s", level=logging.DEBUG)
 
+logging.getLogger(name="httpcore.http11").setLevel(logging.ERROR)
+
 import os
 
 import uvloop
 
-import kopf
-
-from koreo import registry
 from koreo.resource_function.prepare import prepare_resource_function
 from koreo.resource_function.structure import ResourceFunction
 from koreo.resource_template.prepare import prepare_resource_template
@@ -20,13 +19,15 @@ from koreo.workflow.structure import Workflow
 
 from controller import koreo_cache
 from controller import load_schemas
-from controller.workflow_prepare_shim import prepare_workflow
+from controller.workflow_prepare_shim import get_workflow_preparer
+from controller.custom_workflow import workflow_controller_system
 
 
 GROUP = "koreo.dev"
 VERSION = "v1beta1"
 API_VERSION = f"{GROUP}/{VERSION}"
 
+HOT_LOADING = True
 
 KOREO_NAMESPACE = os.environ.get("KOREO_NAMESPACE", "koreo-testing")
 
@@ -34,6 +35,8 @@ TEMPLATE_NAMESPACE = os.environ.get("TEMPLATE_NAMESPACE", "koreo-testing")
 
 RESOURCE_NAMESPACE = os.environ.get("RESOURCE_NAMESPACE", "koreo-testing")
 
+# NOTE: These are ordered so that each group's dependencies will already be
+# loaded when initially loaded into cache.
 KOREO_RESOURCES = [
     (
         TEMPLATE_NAMESPACE,
@@ -43,78 +46,72 @@ KOREO_RESOURCES = [
     ),
     (KOREO_NAMESPACE, "ValueFunction", ValueFunction, prepare_value_function),
     (KOREO_NAMESPACE, "ResourceFunction", ResourceFunction, prepare_resource_function),
-    (KOREO_NAMESPACE, "Workflow", Workflow, prepare_workflow),
+    # NOTE: Workflow is appended within `main` to integrate updates queue.
 ]
 
 
-def start_custom_workflow_controller():
-    import controller.custom_workflow
+async def _koreo_resource_cache_manager(
+    namespace: str, kind_title: str, resource_class: type, preparer
+):
+    # Block until completion.
+    await koreo_cache.load_cache(
+        namespace=namespace,
+        api_version=API_VERSION,
+        plural_kind=f"{kind_title.lower()}s",
+        kind_title=kind_title,
+        resource_class=resource_class,
+        preparer=preparer,
+    )
+
+    if not HOT_LOADING:
+        return
+
+    # Spawns long-term (infinite) cache maintainer in background
+    await koreo_cache.maintain_cache(
+        namespace=namespace,
+        api_version=API_VERSION,
+        plural_kind=f"{kind_title.lower()}s",
+        kind_title=kind_title,
+        resource_class=resource_class,
+        preparer=preparer,
+    )
 
 
-__tasks = set()
+async def main():
+    # Without the schemas, stuff will not run.
+    await load_schemas.load_koreo_resource_schemas()
 
+    # This is so the queue is matched to the preparer (could be injected too).
+    prepare_workflow, workflow_updates_queue = get_workflow_preparer()
 
-def main():
-    load_schemas.load_koreo_resource_schemas()
+    KOREO_RESOURCES.append(
+        (KOREO_NAMESPACE, "Workflow", Workflow, prepare_workflow),
+    )
 
-    loop = uvloop.EventLoopPolicy().new_event_loop()
+    koreo_tasks = []
+    async with asyncio.TaskGroup() as main_tg:
+        for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
+            cache_task = main_tg.create_task(
+                _koreo_resource_cache_manager(
+                    namespace, kind_title, resource_class, preparer
+                ),
+                name=f"cache-maintainer-{kind_title.lower()}",
+            )
+            koreo_tasks.append(cache_task)
 
-    # First load the Functions, then Workflows to ensure they're cached.
-    # Then maintain the Function and Workflow caches in the background.
-
-    for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
-        # Block until completion.
-        load_task = loop.create_task(
-            koreo_cache.load_cache(
-                namespace=namespace,
-                api_version=API_VERSION,
-                plural_kind=f"{kind_title.lower()}s",
-                kind_title=kind_title,
-                resource_class=resource_class,
-                preparer=preparer,
+        # This is the schedule watcher / dispatcher for workflow crdRefs.
+        orchestrator_task = asyncio.create_task(
+            workflow_controller_system(
+                namespace=RESOURCE_NAMESPACE,
+                workflow_updates_queue=workflow_updates_queue,
             )
         )
-        __tasks.add(load_task)
-        load_task.add_done_callback(__tasks.discard)
-
-        loop.run_until_complete(load_task)
-
-        # Spawn in backgound
-        maintain_task = loop.create_task(
-            koreo_cache.maintain_cache(
-                namespace=namespace,
-                api_version=API_VERSION,
-                plural_kind=f"{kind_title.lower()}s",
-                kind_title=kind_title,
-                resource_class=resource_class,
-                preparer=preparer,
-            )
-        )
-        __tasks.add(maintain_task)
-        maintain_task.add_done_callback(__tasks.discard)
-
-    # Fire up the kopf situation.
-    start_custom_workflow_controller()
-
-    try:
-        loop.run_until_complete(kopf.operator(namespace=RESOURCE_NAMESPACE))
-    except:
-        logging.exception("Shutting down due to exception.")
-
-        for resource_key in registry._SUBSCRIPTION_QUEUES:
-            registry._kill_resource(resource_key=resource_key)
-
-        tasks = [
-            task
-            for task in asyncio.tasks.all_tasks(loop=loop)
-            if task is not asyncio.tasks.current_task()
-        ]
-        for task in tasks:
-            task.cancel()
-        asyncio.gather(*tasks, return_exceptions=True)
-        loop.stop()
-        exit()
+        koreo_tasks.append(orchestrator_task)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    try:
+        uvloop.run(main())
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        exit(0)
