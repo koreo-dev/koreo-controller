@@ -72,7 +72,7 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
             for resource in kind_watch_results[kind]
         }
 
-        async def event_handler(event: str, resource):
+        async def event_handler(event: str, resource, **kwargs):
             kind = resource.full_kind
             name = resource.name
             kind_events_handeled[f"{kind}:{name}"] += 1
@@ -151,7 +151,7 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
         handled_event_count = 0
 
-        async def event_handler(event: str, resource):
+        async def event_handler(event: str, resource, **kwargs):
             nonlocal handled_event_count
             handled_event_count += 1
             return True
@@ -248,7 +248,7 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
             for resource in kind_watch_results[kind]
         }
 
-        async def event_handler(event: str, resource):
+        async def event_handler(event: str, resource, **kwargs):
             kind = resource.full_kind
             name = resource.name
             print(f"handling and event for {kind}:{name}")
@@ -349,7 +349,7 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
         handled_event_count = 0
 
-        async def event_handler(event: str, resource):
+        async def event_handler(event: str, resource, **kwargs):
             nonlocal handled_event_count
             handled_event_count += 1
             return True
@@ -436,7 +436,7 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
         handled_event_count = 0
 
-        async def event_handler(event: str, resource):
+        async def event_handler(event: str, resource, **kwargs):
             nonlocal handled_event_count
             handled_event_count += 1
             print(f"Handling event {handled_event_count}")

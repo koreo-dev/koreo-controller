@@ -63,11 +63,9 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
 
         mock_api.async_watch.side_effect = _simple_async_watcher(kind_watch_results)
 
-        namepace = "unit-test"
+        namespace = "unit-test"
 
-        request_queue: asyncio.PriorityQueue[
-            scheduler.Request[tuple[str, str]] | scheduler.Shutdown
-        ] = asyncio.PriorityQueue()
+        request_queue = scheduler.RequestQueue[tuple[str, str]]()
 
         async def event_handler(event: str, resource: kr8s._objects.APIObject):
             await request_queue.put(
@@ -78,7 +76,7 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
             return True
 
         event_config = events.Configuration(
-            event_handler=event_handler, namespace=namepace
+            event_handler=event_handler, namespace=namespace
         )
 
         processed_counts = {}
@@ -92,7 +90,7 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
 
         scheduler_config = scheduler.Configuration(work_processor=work_processor)
 
-        watch_queue = asyncio.Queue()
+        watch_queue = events.WatchQueue()
 
         for kind in ["One", "Two"]:
             await watch_queue.put(
@@ -104,7 +102,7 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-        async with asyncio.timeout(2), asyncio.TaskGroup() as tg:
+        async with asyncio.timeout(0.1), asyncio.TaskGroup() as tg:
             tg.create_task(
                 events.chief_of_the_watch(
                     api=mock_api,

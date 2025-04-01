@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, NamedTuple
+from typing import Literal, NamedTuple, Protocol
 import asyncio
 import logging
 import random
@@ -21,8 +21,19 @@ class CancelWatches(NamedTuple):
     workflow: str
 
 
+class EventHandler(Protocol):
+    async def __call__(
+        self,
+        event: Literal["ADDED", "MODIFIED", "DELETED"],
+        api_group: str,
+        api_version: str,
+        kind: str,
+        resource: kr8s._objects.APIObject,
+    ): ...
+
+
 class Configuration(NamedTuple):
-    event_handler: Callable[[str, kr8s._objects.APIObject], Awaitable[bool]]
+    event_handler: EventHandler
 
     namespace: str
 
@@ -50,10 +61,13 @@ class StopTheWatch:
     pass
 
 
+WatchQueue = asyncio.Queue[WatchRequest | CancelWatches | StopTheWatch]
+
+
 async def chief_of_the_watch(
     api: kr8s.asyncio.Api,
     tg: asyncio.TaskGroup,
-    watch_requests: asyncio.Queue[WatchRequest | CancelWatches | StopTheWatch],
+    watch_requests: WatchQueue,
     configuration: Configuration,
 ):
     watchstanders: dict[
@@ -323,7 +337,13 @@ async def _watchstander(
                     # )
                     continue
 
-                await configuration.event_handler(event, resource)
+                await configuration.event_handler(
+                    event=event,
+                    api_group=api_group,
+                    api_version=version,
+                    kind=kind_title,
+                    resource=resource,
+                )
 
     except asyncio.CancelledError:
         logger.debug(f"Cancelling `{full_kind}` watch.")

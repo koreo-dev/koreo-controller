@@ -1,4 +1,4 @@
-from typing import NamedTuple, Protocol
+from typing import NamedTuple, Protocol, TypeVar
 import asyncio
 import heapq
 import logging
@@ -44,9 +44,13 @@ class Shutdown(NamedTuple):
     at: float = 0
 
 
+RequestPayload = TypeVar("RequestPayload")
+RequestQueue = asyncio.PriorityQueue[Request[RequestPayload] | Shutdown]
+
+
 async def orchestrator[T](
     tg: asyncio.TaskGroup,
-    requests: asyncio.PriorityQueue[Request[T] | Shutdown],
+    requests: RequestQueue[T],
     configuration: Configuration[T],
 ):
     request_schedule: list[Request[T]] = []
@@ -92,6 +96,7 @@ async def orchestrator[T](
             )
             if isinstance(new_work_request, Shutdown):
                 # Shutdown and clear the requests queue.
+                requests.task_done()
                 requests.shutdown(immediate=True)
 
                 # Clear any pending work from the queue.
@@ -111,12 +116,12 @@ async def orchestrator[T](
                 # Shutdown the queue.
                 work.shutdown()
                 return
+
             heapq.heappush(request_schedule, new_work_request)
+            requests.task_done()
         except asyncio.TimeoutError:
             # Indicates it is time to run the next scheduled reconciliation
             continue
-        finally:
-            requests.task_done()
 
 
 async def _worker_task[T](
@@ -153,6 +158,8 @@ async def _worker[T](
             ),
             timeout=configuration.timeout_seconds,
         )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
 
     except:
         logger.exception(
