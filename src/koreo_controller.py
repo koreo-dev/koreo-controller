@@ -9,6 +9,7 @@ import os
 
 import uvloop
 
+from koreo.constants import API_GROUP, DEFAULT_API_VERSION
 from koreo.resource_function.prepare import prepare_resource_function
 from koreo.resource_function.structure import ResourceFunction
 from koreo.resource_template.prepare import prepare_resource_template
@@ -23,9 +24,7 @@ from controller.workflow_prepare_shim import get_workflow_preparer
 from controller.custom_workflow import workflow_controller_system
 
 
-GROUP = "koreo.dev"
-VERSION = "v1beta1"
-API_VERSION = f"{GROUP}/{VERSION}"
+API_VERSION = f"{API_GROUP}/{DEFAULT_API_VERSION}"
 
 HOT_LOADING = True
 

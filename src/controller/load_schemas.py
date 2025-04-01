@@ -2,10 +2,9 @@ import asyncio
 import kr8s.asyncio
 
 from koreo import schema
+from koreo.constants import API_GROUP, DEFAULT_API_VERSION
 
-GROUP = "koreo.dev"
-VERSION = "v1beta1"
-API_VERSION = f"{GROUP}/{VERSION}"
+API_VERSION = f"{API_GROUP}/{DEFAULT_API_VERSION}"
 
 KINDS = [
     ("FunctionTest", "functiontests"),
