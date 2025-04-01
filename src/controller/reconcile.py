@@ -272,6 +272,8 @@ async def reconcile_resource(
 
     cached_resource = __resource_cache.get(payload)
 
+    return reconcile_outcome
+
 
 class LoadedWorkflow(NamedTuple):
     workflow: Workflow
