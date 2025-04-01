@@ -13,7 +13,7 @@ async def workflow_controller_system(
 ):
     api = await kr8s.asyncio.api()
 
-    event_handler, request_queue = reconcile.get_event_handler()
+    event_handler, request_queue = reconcile.get_event_handler(namespace=namespace)
 
     event_config = events.Configuration(
         event_handler=event_handler, namespace=namespace

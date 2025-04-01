@@ -12,7 +12,11 @@ logger = logging.getLogger("koreo.controller.scheduler")
 
 class WorkProcessor[T](Protocol):
     async def __call__(
-        self, payload: T, sys_error_retries: int, user_retries: int
+        self,
+        payload: T,
+        ok_frequency_seconds: int,
+        sys_error_retries: int,
+        user_retries: int,
     ) -> UnwrappedOutcome:
         pass
 
@@ -153,6 +157,7 @@ async def _worker[T](
         result = await asyncio.wait_for(
             configuration.work_processor(
                 request.payload,
+                ok_frequency_seconds=configuration.frequency_seconds,
                 sys_error_retries=request.sys_error_retries,
                 user_retries=request.user_retries,
             ),
