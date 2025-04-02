@@ -203,6 +203,9 @@ async def _worker[T](
         work.task_done()
 
     if not is_error(result):
+        if result is None:
+            return False
+
         # Ok, Skip, or DepSkip. Recheck at scheduled frequency.
         await requests.put(
             Request(

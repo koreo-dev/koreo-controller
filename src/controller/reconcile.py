@@ -42,6 +42,7 @@ class Resource(NamedTuple):
 
 class LastReconcile(NamedTuple):
     at: float
+    next_at: float
 
     workflow_id: str | None = None
 
@@ -57,7 +58,11 @@ class CachedResource(NamedTuple):
     last_reconcile: LastReconcile | None = None
 
 
-__resource_cache: dict[Resource, CachedResource] = {}
+class DeletedTombstone(NamedTuple):
+    uid: str
+
+
+__resource_cache: dict[Resource, CachedResource | DeletedTombstone] = {}
 
 
 def get_event_handler(namespace: str):
@@ -79,7 +84,23 @@ def get_event_handler(namespace: str):
         )
         old_cache = __resource_cache.get(resource_key)
 
+        resource_uid = resource.raw.get("metadata", {}).get("uid")
+
+        if event == "DELETED":
+            if not old_cache:
+                return
+
+            __resource_cache[resource_key] = DeletedTombstone(uid=resource_uid)
+            return
+
         resource_hash = _hash_resource(resource.raw)
+
+        if isinstance(old_cache, DeletedTombstone):
+            if old_cache.uid == resource_uid:
+                # NoOp; stale event for a deleted resource.
+                return
+
+            old_cache = None
 
         if not old_cache or old_cache.resource_hash != resource_hash:
             __resource_cache[resource_key] = CachedResource(
@@ -135,19 +156,23 @@ async def reconcile_resource(
     if not cached_resource:
         # TODO: Attempt to load from cluster?
         logger.error(f"Failed to find resource in cache ({payload}).")
-        return
+        return None
+
+    if isinstance(cached_resource, DeletedTombstone):
+        logger.debug(f"{payload} was deleted from cluster.")
+        return None
 
     if not cached_resource.cached:
         # TODO: Attempt to load from cluster?
         logger.error(f"Missing cached resource ({payload}).")
-        return
+        return None
 
     cached_metadata = cached_resource.cached.raw.get("metadata", {})
 
     if not cached_metadata:
         # TODO: Attempt to load from cluster?
         logger.error(f"Corrupt cached resource is missing metadata ({payload}).")
-        return
+        return None
 
     merge_conditions = (
         cached_metadata.get("annotations", {}).get(
@@ -182,23 +207,23 @@ async def reconcile_resource(
         logger.error(
             f"Failed load check resource from cache ({payload}) (after loading workflow)."
         )
-        return
+        return None
+
+    if isinstance(cache_check, DeletedTombstone):
+        logger.debug(f"{payload} was deleted from cluster while loading workflow.")
+        return None
 
     if cache_check.resource_hash != cached_resource.resource_hash:
         # The update should already have inserted a new reconcile request.
         logger.info(
             f"Aborting reconcile because {payload} updated while looking up workflow."
         )
-        return
+        return None
 
     if (
         cache_check.last_reconcile  # It has been reconciled.
         and cache_check.last_reconcile.workflow_id == workflow_id  # by this workflow
     ):
-        second_to_next_ok_reconcile = round(
-            time.monotonic() - cache_check.last_reconcile.at + ok_frequency_seconds - 1
-        )
-
         if is_error(cache_check.last_reconcile.outcome):
             if isinstance(cache_check.last_reconcile.outcome, PermFail):
                 # PermFail should wait for a resource or workflow change.
@@ -206,15 +231,18 @@ async def reconcile_resource(
                     f"{payload} in PermFail state, will not reattempt "
                     f"without update to resource or workflow ({workflow.name})."
                 )
-                return
+                return None
             # Retry will flow through.
 
-        elif second_to_next_ok_reconcile > 0:
+        elif time.monotonic() < cache_check.last_reconcile.next_at - 5:
+            seconds_to_wait = round(
+                cache_check.last_reconcile.next_at - time.monotonic()
+            )
             logger.debug(
                 f"{payload} reconciled `{cache_check.last_reconcile.outcome}`, "
-                f"not ready for a re-reconcile for {second_to_next_ok_reconcile} seconds."
+                f"not ready for a re-reconcile for {seconds_to_wait} seconds."
             )
-            return
+            return None
 
     owner = (
         f"{cached_resource.cached.namespace}",
@@ -248,7 +276,11 @@ async def reconcile_resource(
         logger.error(
             f"Failed load check resource from cache ({payload}) after reconciling."
         )
-        return
+        return None
+
+    if isinstance(cache_check, DeletedTombstone):
+        logger.warning(f"{payload} was deleted from cluster while reconciling.")
+        return None
 
     if cache_check.resource_hash != cached_resource.resource_hash:
         # The update should already have inserted a new reconcile request.
@@ -256,13 +288,14 @@ async def reconcile_resource(
             f"Skipping cache and conditions update because {payload} was "
             "updated while reconciling."
         )
-        return
+        return None
 
     __resource_cache[payload] = CachedResource(
         resource_hash=cache_check.resource_hash,
         cached=cache_check.cached,
         last_reconcile=LastReconcile(
             at=time.monotonic(),
+            next_at=time.monotonic() + ok_frequency_seconds,
             workflow_id=workflow_id,
             outcome=reconcile_outcome,
             sys_error_retries=sys_error_retries,

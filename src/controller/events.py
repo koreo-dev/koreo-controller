@@ -331,12 +331,6 @@ async def _watchstander(
                 logger.debug(
                     f"Handling {event} for `{full_kind}` object `{resource.name}`."
                 )
-                if event == "DELETED":
-                    # await handle_resource_delete(
-                    #     metadata=resource.metadata,
-                    # )
-                    continue
-
                 await configuration.event_handler(
                     event=event,
                     api_group=api_group,
