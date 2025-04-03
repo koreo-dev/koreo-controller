@@ -257,7 +257,11 @@ async def reconcile_resource(
     )
 
     cached_spec = cached_resource.cached.raw.get("spec")
-    trigger = celpy.json_to_cel({"metadata": cached_metadata, "spec": cached_spec})
+    cached_state = cached_resource.cached.raw.get("status", {}).get("state")
+
+    trigger = celpy.json_to_cel(
+        {"metadata": cached_metadata, "spec": cached_spec, "state": cached_state}
+    )
 
     logger.info(f"Running Workflow {workflow.name} to reconcile {payload}.")
 
