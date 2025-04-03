@@ -1,5 +1,7 @@
 from enum import StrEnum
 from typing import Awaitable, Callable, NamedTuple
+import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -54,6 +56,10 @@ class LastReconcile(NamedTuple):
 
 class CachedResource(NamedTuple):
     resource_hash: str
+
+    locked_at: float
+    reconcile_lock: asyncio.Lock
+
     cached: kr8s._objects.APIObject | None = None
     last_reconcile: LastReconcile | None = None
 
@@ -104,7 +110,10 @@ def get_event_handler(namespace: str):
 
         if not old_cache or old_cache.resource_hash != resource_hash:
             __resource_cache[resource_key] = CachedResource(
-                resource_hash=resource_hash, cached=resource
+                resource_hash=resource_hash,
+                cached=resource,
+                locked_at=0,
+                reconcile_lock=asyncio.Lock(),
             )
 
         await request_queue.put(
@@ -165,6 +174,12 @@ async def reconcile_resource(
     if not cached_resource.cached:
         # TODO: Attempt to load from cluster?
         logger.error(f"Missing cached resource ({payload}).")
+        return None
+
+    if cached_resource.reconcile_lock.locked() and (
+        time.monotonic() - cached_resource.locked_at < 60
+    ):
+        logger.debug(f"{payload} is currently being reconciled by another worker.")
         return None
 
     cached_metadata = cached_resource.cached.raw.get("metadata", {})
@@ -263,16 +278,31 @@ async def reconcile_resource(
         {"metadata": cached_metadata, "spec": cached_spec, "state": cached_state}
     )
 
+    if cache_check.reconcile_lock.locked():
+        if time.monotonic() - cache_check.locked_at < 60:
+            logger.debug(f"{payload} is currently being reconciled by another worker.")
+            return None
+        else:
+            logger.warning(f"Releasing stuck reconcile lock for {payload}.")
+            try:
+                cache_check.reconcile_lock.release()
+            except RuntimeError:
+                pass
+
     logger.info(f"Running Workflow {workflow.name} to reconcile {payload}.")
 
-    reconcile_outcome = await reconcile_with_workflow(
-        api=api,
-        workflow=workflow,
-        owner=owner,
-        trigger=trigger,
-        conditions=conditions,
-        patch=cached_resource.cached.async_patch,
-    )
+    async with cache_check.reconcile_lock:
+        __resource_cache[payload] = copy.replace(
+            cache_check, locked_at=time.monotonic()
+        )
+        reconcile_outcome = await reconcile_with_workflow(
+            api=api,
+            workflow=workflow,
+            owner=owner,
+            trigger=trigger,
+            conditions=conditions,
+            patch=cached_resource.cached.async_patch,
+        )
 
     cache_check = __resource_cache.get(payload)
     if not cache_check:
@@ -294,9 +324,16 @@ async def reconcile_resource(
         )
         return None
 
+    if cache_check.last_reconcile != cached_resource.last_reconcile:
+        # Resource was reconciled by another worker too. Don't propogate.
+        logger.info(f"{payload} was reconciled by another worker while reconciling.")
+        return None
+
     __resource_cache[payload] = CachedResource(
         resource_hash=cache_check.resource_hash,
         cached=cache_check.cached,
+        locked_at=0,
+        reconcile_lock=cache_check.reconcile_lock,
         last_reconcile=LastReconcile(
             at=time.monotonic(),
             next_at=time.monotonic() + ok_frequency_seconds,
@@ -368,7 +405,7 @@ def _lookup_workflow_for_resource(
         if is_unwrapped_ok(cached_workflow.resource):
             return LoadedWorkflow(
                 workflow=cached_workflow.resource,
-                version=cached_workflow.resource_version,
+                version=f"{cached_workflow.prepared_at}",
             )
 
         message = f"User-specified Workflow `{user_specified_workflow}` not ready {cached_workflow.resource.message}."
@@ -511,7 +548,7 @@ def _lookup_workflow_for_resource(
         )
 
     return LoadedWorkflow(
-        workflow=cached_workflow.resource, version=cached_workflow.resource_version
+        workflow=cached_workflow.resource, version=f"{cached_workflow.prepared_at}"
     )
 
 
