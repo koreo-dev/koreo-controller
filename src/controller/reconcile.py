@@ -161,26 +161,11 @@ async def reconcile_resource(
 ):
     api = await kr8s.asyncio.api()
 
-    cached_resource = __resource_cache.get(payload)
-    if not cached_resource:
-        # TODO: Attempt to load from cluster?
-        logger.error(f"Failed to find resource in cache ({payload}).")
+    if not (cached_resource := _load_cached_resource(payload)):
         return None
 
-    if isinstance(cached_resource, DeletedTombstone):
-        logger.debug(f"{payload} was deleted from cluster.")
-        return None
-
-    if not cached_resource.cached:
-        # TODO: Attempt to load from cluster?
-        logger.error(f"Missing cached resource ({payload}).")
-        return None
-
-    if cached_resource.reconcile_lock.locked() and (
-        time.monotonic() - cached_resource.locked_at < 60
-    ):
-        logger.debug(f"{payload} is currently being reconciled by another worker.")
-        return None
+    # This is just for the linters, it is checked in _load_cached_resource
+    assert cached_resource.cached
 
     cached_metadata = cached_resource.cached.raw.get("metadata", {})
 
@@ -210,54 +195,19 @@ async def reconcile_resource(
             message=message, result=result, patch_value=patch_value
         ):
             logger.warning(f"Workflow lookup error: {message}")
-            await cached_resource.cached.async_patch(patch_value)
+            try:
+                await cached_resource.cached.async_patch(patch_value)
+            except kr8s.NotFoundError:
+                logger.info(f"{payload} was deleted.")
+                __resource_cache[payload] = DeletedTombstone(
+                    uid=cached_metadata.get("uid")
+                )
+                return None
+
             return result
         case LoadedWorkflow(workflow=workflow, version=workflow_version):
             # The workflow is used later as well.
             workflow_id = f"{workflow.name}:{workflow_version}"
-
-    cache_check = __resource_cache.get(payload)
-    if not cache_check:
-        # TODO: What could cause this?
-        logger.error(
-            f"Failed load check resource from cache ({payload}) (after loading workflow)."
-        )
-        return None
-
-    if isinstance(cache_check, DeletedTombstone):
-        logger.debug(f"{payload} was deleted from cluster while loading workflow.")
-        return None
-
-    if cache_check.resource_hash != cached_resource.resource_hash:
-        # The update should already have inserted a new reconcile request.
-        logger.info(
-            f"Aborting reconcile because {payload} updated while looking up workflow."
-        )
-        return None
-
-    if (
-        cache_check.last_reconcile  # It has been reconciled.
-        and cache_check.last_reconcile.workflow_id == workflow_id  # by this workflow
-    ):
-        if is_error(cache_check.last_reconcile.outcome):
-            if isinstance(cache_check.last_reconcile.outcome, PermFail):
-                # PermFail should wait for a resource or workflow change.
-                logger.info(
-                    f"{payload} in PermFail state, will not reattempt "
-                    f"without update to resource or workflow ({workflow.name})."
-                )
-                return None
-            # Retry will flow through.
-
-        elif time.monotonic() < cache_check.last_reconcile.next_at - 5:
-            seconds_to_wait = round(
-                cache_check.last_reconcile.next_at - time.monotonic()
-            )
-            logger.debug(
-                f"{payload} reconciled `{cache_check.last_reconcile.outcome}`, "
-                f"not ready for a re-reconcile for {seconds_to_wait} seconds."
-            )
-            return None
 
     owner = (
         f"{cached_resource.cached.namespace}",
@@ -278,42 +228,34 @@ async def reconcile_resource(
         {"metadata": cached_metadata, "spec": cached_spec, "state": cached_state}
     )
 
-    if cache_check.reconcile_lock.locked():
-        if time.monotonic() - cache_check.locked_at < 60:
-            logger.debug(f"{payload} is currently being reconciled by another worker.")
-            return None
-        else:
-            logger.warning(f"Releasing stuck reconcile lock for {payload}.")
-            try:
-                cache_check.reconcile_lock.release()
-            except RuntimeError:
-                pass
+    if not (
+        reconcile_lock := _check_cache_and_get_lock(
+            payload, cached_resource.resource_hash, workflow_id
+        )
+    ):
+        return None
 
     logger.info(f"Running Workflow {workflow.name} to reconcile {payload}.")
 
-    async with cache_check.reconcile_lock:
+    async with reconcile_lock:
         __resource_cache[payload] = copy.replace(
-            cache_check, locked_at=time.monotonic()
+            __resource_cache[payload], locked_at=time.monotonic()
         )
-        reconcile_outcome = await reconcile_with_workflow(
-            api=api,
-            workflow=workflow,
-            owner=owner,
-            trigger=trigger,
-            conditions=conditions,
-            patch=cached_resource.cached.async_patch,
-        )
+        try:
+            reconcile_outcome = await reconcile_with_workflow(
+                api=api,
+                workflow=workflow,
+                owner=owner,
+                trigger=trigger,
+                conditions=conditions,
+                patch=cached_resource.cached.async_patch,
+            )
+        except kr8s.NotFoundError:
+            logger.info(f"{payload} was deleted during reconcile.")
+            __resource_cache[payload] = DeletedTombstone(uid=cached_metadata.get("uid"))
+            return None
 
-    cache_check = __resource_cache.get(payload)
-    if not cache_check:
-        # TODO: What could cause this?
-        logger.error(
-            f"Failed load check resource from cache ({payload}) after reconciling."
-        )
-        return None
-
-    if isinstance(cache_check, DeletedTombstone):
-        logger.warning(f"{payload} was deleted from cluster while reconciling.")
+    if not (cache_check := _basic_load_cached_resource(payload)):
         return None
 
     if cache_check.resource_hash != cached_resource.resource_hash:
@@ -325,7 +267,7 @@ async def reconcile_resource(
         return None
 
     if cache_check.last_reconcile != cached_resource.last_reconcile:
-        # Resource was reconciled by another worker too. Don't propogate.
+        # Resource was reconciled by another worker too. Don't propagate.
         logger.info(f"{payload} was reconciled by another worker while reconciling.")
         return None
 
@@ -344,9 +286,103 @@ async def reconcile_resource(
         ),
     )
 
-    cached_resource = __resource_cache.get(payload)
-
     return reconcile_outcome
+
+
+def _load_cached_resource(resource: Resource) -> CachedResource | None:
+    if not (cached_resource := _basic_load_cached_resource(resource)):
+        return None
+
+    if not cached_resource.cached:
+        # TODO: Attempt to load from cluster?
+        logger.error(f"Missing cached resource ({resource}).")
+        return None
+
+    if cached_resource.reconcile_lock.locked() and (
+        time.monotonic() - cached_resource.locked_at < 60
+    ):
+        logger.debug(f"{resource} is currently being reconciled by another worker.")
+        return None
+
+    return cached_resource
+
+
+def _check_cache_and_get_lock(
+    resource: Resource,
+    resource_hash: str,
+    workflow_id: str,
+) -> asyncio.Lock | None:
+    if not (cached_resource := _basic_load_cached_resource(resource)):
+        return None
+
+    if cached_resource.resource_hash != resource_hash:
+        # The update should already have inserted a new reconcile request.
+        logger.info(
+            f"Aborting reconcile because {resource} updated while looking up workflow."
+        )
+        return None
+
+    # It has never been reconciled, we're good to go.
+    if not cached_resource.last_reconcile:
+        return cached_resource.reconcile_lock
+
+    last_reconcile = cached_resource.last_reconcile
+
+    # Was not reconciled by this workflow, we're good to go.
+    if last_reconcile.workflow_id != workflow_id:
+        return cached_resource.reconcile_lock
+
+    # Last outcome was a retry, go ahead and try again.
+    if isinstance(last_reconcile.outcome, Retry):
+        return cached_resource.reconcile_lock
+
+    if isinstance(last_reconcile.outcome, PermFail):
+        # PermFail should wait for a resource or workflow change, that's not
+        # the case here.
+        logger.info(
+            f"{resource} in PermFail state, will not reattempt reconcile "
+            "without an update to the resource or workflow."
+        )
+        return None
+
+    seconds_to_wait = round(last_reconcile.next_at - time.monotonic())
+    if seconds_to_wait > 5:
+        logger.debug(
+            f"{resource} reconciled to `{last_reconcile.outcome}`, "
+            f"not ready for a re-reconcile for {seconds_to_wait} seconds."
+        )
+        return None
+
+    # No lock, we're good to go.
+    if not cached_resource.reconcile_lock.locked():
+        return cached_resource.reconcile_lock
+
+    # If the lock is not "stuck", skip this reconcile.
+    if time.monotonic() - cached_resource.locked_at < 60:
+        logger.debug(f"{resource} is being reconciled by another worker.")
+        return None
+
+    logger.warning(f"Releasing stuck reconcile lock for {resource}.")
+    try:
+        cached_resource.reconcile_lock.release()
+    except RuntimeError:
+        pass
+
+    return cached_resource.reconcile_lock
+
+
+def _basic_load_cached_resource(resource: Resource) -> CachedResource | None:
+    cached_resource = __resource_cache.get(resource)
+    if not cached_resource:
+        # TODO: Attempt to load from cluster?
+        logger.error(f"Failed to find resource in cache ({resource}).")
+        return None
+
+    if isinstance(cached_resource, DeletedTombstone):
+        logger.debug(f"{resource} was deleted from cluster.")
+        return None
+
+    return cached_resource
 
 
 class LoadedWorkflow(NamedTuple):
