@@ -3,7 +3,9 @@ import logging
 
 logging.basicConfig(format="%(name)s\t:%(levelname)s: %(message)s", level=logging.DEBUG)
 
-logging.getLogger(name="httpcore.http11").setLevel(logging.ERROR)
+logging.getLogger(name="httpcore.connection").setLevel(logging.WARN)
+logging.getLogger(name="httpcore.http11").setLevel(logging.WARN)
+logging.getLogger(name="httpx").setLevel(logging.WARN)
 
 import os
 
