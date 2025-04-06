@@ -93,9 +93,6 @@ def get_event_handler(namespace: str):
         resource_uid = resource.raw.get("metadata", {}).get("uid")
 
         if event == "DELETED":
-            if not old_cache:
-                return
-
             __resource_cache[resource_key] = DeletedTombstone(uid=resource_uid)
             return
 
