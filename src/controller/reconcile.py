@@ -71,6 +71,11 @@ class DeletedTombstone(NamedTuple):
 __resource_cache: dict[Resource, CachedResource | DeletedTombstone] = {}
 
 
+def _reset():
+    """Unit testing helper. Don't use in real code."""
+    __resource_cache.clear()
+
+
 def get_event_handler(namespace: str):
     request_queue = scheduler.RequestQueue[Resource]()
 
@@ -161,7 +166,7 @@ async def reconcile_resource(
     if not (cached_resource := _load_cached_resource(payload)):
         return None
 
-    # This is just for the linters, it is checked in _load_cached_resource
+    # This is for linters, it is checked in _load_cached_resource
     assert cached_resource.cached
 
     cached_metadata = cached_resource.cached.raw.get("metadata", {})
