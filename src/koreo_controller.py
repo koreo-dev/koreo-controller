@@ -1,11 +1,13 @@
 import asyncio
 import logging
 
-logging.basicConfig(format="%(name)s\t:%(levelname)s: %(message)s", level=logging.DEBUG)
+logging.basicConfig(format="%(name)s\t:%(levelname)s: %(message)s", level=logging.INFO)
 
-logging.getLogger(name="httpcore.connection").setLevel(logging.WARN)
-logging.getLogger(name="httpcore.http11").setLevel(logging.WARN)
-logging.getLogger(name="httpx").setLevel(logging.WARN)
+logging.getLogger(name="httpcore.connection").setLevel(logging.WARNING)
+logging.getLogger(name="httpcore.http11").setLevel(logging.WARNING)
+logging.getLogger(name="httpx").setLevel(logging.WARNING)
+logging.getLogger(name="kr8s._api").setLevel(logging.WARNING)
+logging.getLogger(name="kr8s._auth").setLevel(logging.WARNING)
 
 import os
 
