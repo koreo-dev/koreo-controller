@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 
 import kr8s.asyncio
 
@@ -7,6 +8,12 @@ from koreo.cache import delete_resource_from_cache, prepare_and_cache
 
 
 RECONNECT_TIMEOUT = 900
+
+MAX_SYS_ERRORS = 10
+
+RETRY_MAX_DELAY = 300
+RETRY_BASE_DELAY = 30
+RETRY_JITTER = 10
 
 
 async def load_cache(
@@ -50,6 +57,8 @@ async def maintain_cache(
     preparer,
 ):
     logging.debug(f"Maintaining {plural_kind}.{api_version} Cache.")
+
+    error_retries = 0
 
     while True:
         try:
@@ -95,12 +104,22 @@ async def maintain_cache(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch "
                 "due to normal reconnect timeout."
             )
+            error_retries = 0
         except:
             logging.exception(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch."
             )
+
+            error_retries += 1
+
+            if error_retries > MAX_SYS_ERRORS:
+                logging.error(f"Retry limit ({MAX_SYS_ERRORS}) exceeded.")
+                raise
+
             # NOTE: This is just to prevent completely blowing up the API
             # Server if there's an issue. It probably should have a back-off
             # based on the last retry time.
-
-            await asyncio.sleep(30)
+            await asyncio.sleep(
+                min((2**error_retries) * RETRY_BASE_DELAY, RETRY_MAX_DELAY)
+                + random.random() * RETRY_JITTER
+            )
