@@ -237,7 +237,7 @@ async def reconcile_resource(
     ):
         return None
 
-    logger.info(f"Running Workflow {workflow.name} to reconcile {payload}.")
+    logger.info(f"Reconciling {payload} using Workflow {workflow.name}.")
 
     async with reconcile_lock:
         __resource_cache[payload] = copy.replace(
@@ -407,7 +407,7 @@ def _lookup_workflow_for_resource(
 
     user_specified_workflow = annotations.get(AnnotationKeys.workflow)
     if user_specified_workflow:
-        logger.info(
+        logger.debug(
             f"Looking up user-specified workflow ({user_specified_workflow}) for `{crd_key}`"
         )
         cached_workflow = get_resource_system_data_from_cache(
@@ -471,7 +471,7 @@ def _lookup_workflow_for_resource(
             },
         )
 
-    logger.info(f"Looking up workflow(s) for {crd_key}")
+    logger.debug(f"Looking up workflow(s) for {crd_key}")
     workflow_keys = get_custom_crd_workflows(custom_crd=crd_key)
     if not workflow_keys:
         message = f"Failed to find Workflow for `{crd_key}`"
