@@ -6,6 +6,7 @@ import kr8s.asyncio
 
 from koreo.cache import delete_resource_from_cache, prepare_and_cache
 
+logger = logging.getLogger("koreo.controller.koreo_cache")
 
 MAX_SYS_ERRORS = 10
 
@@ -23,7 +24,7 @@ async def load_cache(
     resource_class,
     preparer,
 ):
-    logging.info(f"Building initial {plural_kind}.{api_version} cache.")
+    logger.debug(f"Building initial {plural_kind}.{api_version} cache.")
 
     k8s_resource_class = kr8s.objects.new_class(
         version=api_version,
@@ -36,7 +37,7 @@ async def load_cache(
     resources = k8s_resource_class.list(api=api, namespace=namespace)
 
     async for resource in resources:
-        logging.debug(f"Caching {resource.name}.")
+        logger.debug(f"Caching {resource.name}.")
         await prepare_and_cache(
             resource_class=resource_class,
             preparer=preparer,
@@ -44,7 +45,7 @@ async def load_cache(
             spec=resource.raw.get("spec", {}),
         )
 
-    logging.debug(f"Initial {plural_kind}.{api_version} cache load complete.")
+    logger.debug(f"Initial {plural_kind}.{api_version} cache load complete.")
 
 
 async def maintain_cache(
@@ -57,7 +58,7 @@ async def maintain_cache(
     preparer,
     reconnect_timeout: int = 900,
 ):
-    logging.debug(f"Maintaining {plural_kind}.{api_version} Cache.")
+    logger.debug(f"Maintaining {plural_kind}.{api_version} Cache.")
 
     k8s_resource_class = kr8s.objects.new_class(
         version=api_version,
@@ -77,7 +78,7 @@ async def maintain_cache(
             async with asyncio.timeout(reconnect_timeout):
                 async for event, resource in watcher:
                     if event == "DELETED":
-                        logging.debug(
+                        logger.debug(
                             f"Deleting {plural_kind}.{api_version} from cache due to {event} for {resource.name}."
                         )
                         await delete_resource_from_cache(
@@ -86,7 +87,7 @@ async def maintain_cache(
                         )
                         continue
 
-                    logging.debug(
+                    logger.debug(
                         f"Updating {plural_kind}.{api_version} cache due to {event} for {resource.name}."
                     )
                     await prepare_and_cache(
@@ -98,20 +99,20 @@ async def maintain_cache(
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         except asyncio.TimeoutError:
-            logging.debug(
+            logger.debug(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch "
                 "due to normal reconnect timeout."
             )
             error_retries = 0
         except:
-            logging.exception(
+            logger.exception(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch."
             )
 
             error_retries += 1
 
             if error_retries > MAX_SYS_ERRORS:
-                logging.error(f"Retry limit ({MAX_SYS_ERRORS}) exceeded.")
+                logger.error(f"Retry limit ({MAX_SYS_ERRORS}) exceeded.")
                 raise
 
             # NOTE: This is just to prevent completely blowing up the API
