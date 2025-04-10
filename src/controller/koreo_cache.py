@@ -11,8 +11,8 @@ logger = logging.getLogger("koreo.controller.koreo_cache")
 MAX_SYS_ERRORS = 10
 
 RETRY_MAX_DELAY = 300
-RETRY_BASE_DELAY = 30
-RETRY_JITTER = 10
+RETRY_BASE_DELAY = 10
+RETRY_JITTER = 5
 
 
 async def load_cache(
