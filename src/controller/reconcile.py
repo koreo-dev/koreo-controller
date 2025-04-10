@@ -25,6 +25,11 @@ from controller import scheduler
 
 logger = logging.getLogger("koreo.controller.reconcile")
 
+STRIP_ANNOTATION_GROUPS = (
+    PREFIX,
+    "kubectl.kubernetes.io",
+)
+
 MISSING_WORKFLOW_RETRY = 120
 
 
@@ -110,12 +115,19 @@ def get_event_handler(namespace: str):
 
             old_cache = None
 
-        if not old_cache or old_cache.resource_hash != resource_hash:
+        if not old_cache:
             __resource_cache[resource_key] = CachedResource(
                 resource_hash=resource_hash,
                 cached=resource,
                 locked_at=0,
                 reconcile_lock=asyncio.Lock(),
+            )
+        elif old_cache.resource_hash != resource_hash:
+            __resource_cache[resource_key] = CachedResource(
+                resource_hash=resource_hash,
+                cached=resource,
+                locked_at=0,
+                reconcile_lock=old_cache.reconcile_lock,
             )
 
         await request_queue.put(
@@ -139,7 +151,7 @@ def _hash_resource(resource: dict):
         non_koreo_annotations = {
             key: value
             for key, value in non_koreo_annotations.items()
-            if not key.startswith(PREFIX)
+            if not key.startswith(STRIP_ANNOTATION_GROUPS)
         }
 
     hash_worthy_resource = {
