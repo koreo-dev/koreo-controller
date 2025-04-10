@@ -1,13 +1,13 @@
 [project]
 name = "koreo-controller"
-version = "0.1.6"
+version = "0.1.8"
 description = "Koreo Controller runs Koreo Core as a Kubernetes Controller."
 authors = [
     {name = "Eric Larssen", email = "eric.larssen@realkinetic.com"},
     {name = "Robert Kluin", email = "robert.kluin@realkinetic.com"},
 ]
 dependencies = [
-    "koreo-core==0.1.6",
+    "koreo-core==0.1.8",
     "cel-python==0.2.0",
     "kr8s==0.20.6",
     "uvloop==0.21.0",
