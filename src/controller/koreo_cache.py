@@ -7,8 +7,6 @@ import kr8s.asyncio
 from koreo.cache import delete_resource_from_cache, prepare_and_cache
 
 
-RECONNECT_TIMEOUT = 900
-
 MAX_SYS_ERRORS = 10
 
 RETRY_MAX_DELAY = 300
@@ -17,6 +15,7 @@ RETRY_JITTER = 10
 
 
 async def load_cache(
+    api: kr8s.asyncio.Api,
     namespace: str,
     api_version: str,
     plural_kind: str,
@@ -34,7 +33,7 @@ async def load_cache(
         scalable=False,
         asyncio=True,
     )
-    resources = k8s_resource_class.list(namespace=namespace)
+    resources = k8s_resource_class.list(api=api, namespace=namespace)
 
     async for resource in resources:
         logging.debug(f"Caching {resource.name}.")
@@ -49,34 +48,33 @@ async def load_cache(
 
 
 async def maintain_cache(
+    api: kr8s.asyncio.Api,
     namespace: str,
     api_version: str,
     plural_kind: str,
     kind_title: str,
     resource_class,
     preparer,
+    reconnect_timeout: int = 900,
 ):
     logging.debug(f"Maintaining {plural_kind}.{api_version} Cache.")
+
+    k8s_resource_class = kr8s.objects.new_class(
+        version=api_version,
+        kind=kind_title,
+        plural=plural_kind,
+        namespaced=True,
+        scalable=False,
+        asyncio=True,
+    )
 
     error_retries = 0
 
     while True:
         try:
-            kr8s_api = await kr8s.asyncio.api()
-            kr8s_api.timeout = RECONNECT_TIMEOUT
+            watcher = api.async_watch(kind=k8s_resource_class, namespace=namespace)
 
-            k8s_resource_class = kr8s.objects.new_class(
-                version=api_version,
-                kind=kind_title,
-                plural=plural_kind,
-                namespaced=True,
-                scalable=False,
-                asyncio=True,
-            )
-
-            watcher = kr8s_api.async_watch(kind=k8s_resource_class, namespace=namespace)
-
-            async with asyncio.timeout(RECONNECT_TIMEOUT):
+            async with asyncio.timeout(reconnect_timeout):
                 async for event, resource in watcher:
                     if event == "DELETED":
                         logging.debug(

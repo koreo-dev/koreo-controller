@@ -8,11 +8,10 @@ from controller import reconcile
 
 
 async def workflow_controller_system(
+    api: kr8s.asyncio.Api,
     namespace: str,
     workflow_updates_queue: events.WatchQueue,
 ):
-    api = await kr8s.asyncio.api()
-
     event_handler, request_queue = reconcile.get_event_handler(namespace=namespace)
 
     event_config = events.Configuration(
