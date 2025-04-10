@@ -15,17 +15,16 @@ KINDS = [
 ]
 
 
-async def load_koreo_resource_schemas():
-    tasks = set()
+async def load_koreo_resource_schemas(api: kr8s.asyncio.Api):
+    async with asyncio.TaskGroup() as tg:
+        for kind, plural in KINDS:
+            tg.create_task(
+                _load_schema_for_kind(api, kind, plural), name=f"schema-loader-{kind}"
+            )
 
-    for kind, plural in KINDS:
-        tasks.add(_load_schema_for_kind(kind, plural))
 
-    await asyncio.gather(*tasks)
-
-
-async def _load_schema_for_kind(kind: str, plural: str):
+async def _load_schema_for_kind(api: kr8s.asyncio.Api, kind: str, plural: str):
     crd = await kr8s.asyncio.objects.CustomResourceDefinition.get(
-        name=f"{plural}.{API_GROUP}"
+        api=api, name=f"{plural}.{API_GROUP}"
     )
     schema.load_validator(kind, crd.raw)

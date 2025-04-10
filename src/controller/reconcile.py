@@ -25,6 +25,11 @@ from controller import scheduler
 
 logger = logging.getLogger("koreo.controller.reconcile")
 
+STRIP_ANNOTATION_GROUPS = (
+    PREFIX,
+    "kubectl.kubernetes.io",
+)
+
 MISSING_WORKFLOW_RETRY = 120
 
 
@@ -110,12 +115,19 @@ def get_event_handler(namespace: str):
 
             old_cache = None
 
-        if not old_cache or old_cache.resource_hash != resource_hash:
+        if not old_cache:
             __resource_cache[resource_key] = CachedResource(
                 resource_hash=resource_hash,
                 cached=resource,
                 locked_at=0,
                 reconcile_lock=asyncio.Lock(),
+            )
+        elif old_cache.resource_hash != resource_hash:
+            __resource_cache[resource_key] = CachedResource(
+                resource_hash=resource_hash,
+                cached=resource,
+                locked_at=0,
+                reconcile_lock=old_cache.reconcile_lock,
             )
 
         await request_queue.put(
@@ -139,7 +151,7 @@ def _hash_resource(resource: dict):
         non_koreo_annotations = {
             key: value
             for key, value in non_koreo_annotations.items()
-            if not key.startswith(PREFIX)
+            if not key.startswith(STRIP_ANNOTATION_GROUPS)
         }
 
     hash_worthy_resource = {
@@ -237,7 +249,7 @@ async def reconcile_resource(
     ):
         return None
 
-    logger.info(f"Running Workflow {workflow.name} to reconcile {payload}.")
+    logger.info(f"Reconciling {payload} using Workflow {workflow.name}.")
 
     async with reconcile_lock:
         __resource_cache[payload] = copy.replace(
@@ -273,6 +285,11 @@ async def reconcile_resource(
         logger.info(f"{payload} was reconciled by another worker while reconciling.")
         return None
 
+    if isinstance(reconcile_outcome, Retry):
+        next_reconcile_delay = reconcile_outcome.delay
+    else:
+        next_reconcile_delay = ok_frequency_seconds
+
     __resource_cache[payload] = CachedResource(
         resource_hash=cache_check.resource_hash,
         cached=cache_check.cached,
@@ -280,7 +297,7 @@ async def reconcile_resource(
         reconcile_lock=cache_check.reconcile_lock,
         last_reconcile=LastReconcile(
             at=time.monotonic(),
-            next_at=time.monotonic() + ok_frequency_seconds,
+            next_at=time.monotonic() + next_reconcile_delay,
             workflow_id=workflow_id,
             outcome=reconcile_outcome,
             sys_error_retries=sys_error_retries,
@@ -334,10 +351,6 @@ def _check_cache_and_get_lock(
     if last_reconcile.workflow_id != workflow_id:
         return cached_resource.reconcile_lock
 
-    # Last outcome was a retry, go ahead and try again.
-    if isinstance(last_reconcile.outcome, Retry):
-        return cached_resource.reconcile_lock
-
     if isinstance(last_reconcile.outcome, PermFail):
         # PermFail should wait for a resource or workflow change, that's not
         # the case here.
@@ -348,6 +361,14 @@ def _check_cache_and_get_lock(
         return None
 
     seconds_to_wait = round(last_reconcile.next_at - time.monotonic())
+
+    # Last outcome was a retry, need to check how close we are to decide.
+    if isinstance(last_reconcile.outcome, Retry):
+        if seconds_to_wait > 1:
+            return None
+
+        return cached_resource.reconcile_lock
+
     if seconds_to_wait > 5:
         logger.debug(
             f"{resource} reconciled to `{last_reconcile.outcome}`, "
@@ -407,7 +428,7 @@ def _lookup_workflow_for_resource(
 
     user_specified_workflow = annotations.get(AnnotationKeys.workflow)
     if user_specified_workflow:
-        logger.info(
+        logger.debug(
             f"Looking up user-specified workflow ({user_specified_workflow}) for `{crd_key}`"
         )
         cached_workflow = get_resource_system_data_from_cache(
@@ -471,7 +492,7 @@ def _lookup_workflow_for_resource(
             },
         )
 
-    logger.info(f"Looking up workflow(s) for {crd_key}")
+    logger.debug(f"Looking up workflow(s) for {crd_key}")
     workflow_keys = get_custom_crd_workflows(custom_crd=crd_key)
     if not workflow_keys:
         message = f"Failed to find Workflow for `{crd_key}`"
