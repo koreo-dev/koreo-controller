@@ -1,6 +1,6 @@
 [project]
 name = "koreo-controller"
-version = "0.1.8"
+version = "0.1.9"
 description = "Koreo Controller runs Koreo Core as a Kubernetes Controller."
 authors = [
     {name = "Eric Larssen", email = "eric.larssen@realkinetic.com"},
