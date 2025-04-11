@@ -17,8 +17,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract tag without "v"
-        run: echo "TAG_NAME=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+      - name: Extract full and minor tag versions
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME#v}"
+          TAG_NAME_MINOR="${TAG_NAME%.*}"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          echo "TAG_NAME_MINOR=$TAG_NAME_MINOR" >> $GITHUB_ENV
 
       - name: Authenticate to GCP with OIDC
         id: auth
@@ -36,9 +40,12 @@ jobs:
 
       - name: Build and tag Docker image
         run: |
-          docker build -t us-docker.pkg.dev/koreo-dev/koreo/controller:latest -t us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME .
+          docker build -t us-docker.pkg.dev/koreo-dev/koreo/controller:latest \
+            -t us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME \
+            -t us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME_MINOR .
 
       - name: Push image to Artifact Registry
         run: |
           docker push us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME
           docker push us-docker.pkg.dev/koreo-dev/koreo/controller:latest
+          docker push us-docker.pkg.dev/koreo-dev/koreo/controller:$TAG_NAME_MINOR
