@@ -67,7 +67,7 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
 
         request_queue = scheduler.RequestQueue[tuple[str, str]]()
 
-        async def event_handler(event: str, resource: kr8s._objects.APIObject):
+        async def event_handler(event: str, resource: kr8s._objects.APIObject, **_):
             await request_queue.put(
                 scheduler.Request(
                     at=time.monotonic(), payload=(resource.full_kind, resource.name)
@@ -76,7 +76,8 @@ class TestIntegration(unittest.IsolatedAsyncioTestCase):
             return True
 
         event_config = events.Configuration(
-            event_handler=event_handler, namespace=namespace
+            event_handler=event_handler,
+            namespace=namespace,
         )
 
         processed_counts = {}

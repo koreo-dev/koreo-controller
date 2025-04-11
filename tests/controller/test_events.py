@@ -1,5 +1,5 @@
 from typing import Iterable, Sequence
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 import asyncio
 import random
 import unittest
@@ -76,9 +76,6 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
             kind = resource.full_kind
             name = resource.name
             kind_events_handeled[f"{kind}:{name}"] += 1
-            print(
-                f"{event} for {kind}:{name} ({kind_events_handeled[f'{kind}:{name}']})"
-            )
             return True
 
         watch_requests = asyncio.Queue()
@@ -251,12 +248,8 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
         async def event_handler(event: str, resource, **kwargs):
             kind = resource.full_kind
             name = resource.name
-            print(f"handling and event for {kind}:{name}")
 
             kind_events_handeled[f"{kind}:{name}"] += 1
-            print(
-                f"{event} for {kind}:{name} ({kind_events_handeled[f'{kind}:{name}']})"
-            )
             return True
 
         configuration = events.Configuration(
@@ -306,8 +299,6 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
             await watch_requests.put(events.StopTheWatch())
             await asyncio.wait_for(watch_requests.join(), timeout=0.1)
-
-        print(kind_events_handeled)
 
         for resource, count in kind_events_handeled.items():
             if resource.startswith("original"):
@@ -425,8 +416,6 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
             nonlocal watch_call_count
             watch_call_count += 1
 
-            print(f"starting watch {watch_call_count}")
-
             yield (
                 "ADDED",
                 FakeResource(name="unit-test", full_kind="unittests.unit.test/v1test1"),
@@ -436,10 +425,9 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
         handled_event_count = 0
 
-        async def event_handler(event: str, resource, **kwargs):
+        async def event_handler(event: str, resource, **_):
             nonlocal handled_event_count
             handled_event_count += 1
-            print(f"Handling event {handled_event_count}")
             raise Exception("unit-test-boom-boom")
 
         watch_requests = asyncio.Queue()
@@ -459,6 +447,8 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
             event_handler=event_handler,
             namespace="unit-test",
             max_unknown_errors=max_errors,
+            retry_delay_base=0,
+            retry_delay_jitter=0,
         )
 
         async with asyncio.timeout(0.1), asyncio.TaskGroup() as tg:
@@ -478,6 +468,85 @@ class TestChiefOfTheWatch(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(max_errors, watch_call_count)
         self.assertEqual(max_errors, handled_event_count)
+
+        self.assertTrue(chief_task.done())
+        self.assertIsNone(chief_task.result())
+
+    @patch("asyncio.sleep")
+    async def test_watch_restarting_backoff(self, sleep_mock):
+        """Watches auto-restart on error within handler."""
+
+        mock_api = AsyncMock(kr8s.asyncio.Api)
+
+        mock_api.lookup_kind.side_effect = _lookup_kind
+
+        watch_call_count = 0
+
+        async def async_watch(kind: str, namespace: str):
+            nonlocal watch_call_count
+            watch_call_count += 1
+
+            yield (
+                "ADDED",
+                FakeResource(name="unit-test", full_kind="unittests.unit.test/v1test1"),
+            )
+
+        mock_api.async_watch.side_effect = async_watch
+
+        handled_event_count = 0
+
+        async def event_handler(event: str, resource, **_):
+            nonlocal handled_event_count
+            handled_event_count += 1
+            raise Exception("unit-test-boom-boom")
+
+        watch_requests = asyncio.Queue()
+
+        await watch_requests.put(
+            events.WatchRequest(
+                api_group="unit.test",
+                api_version="v1test1",
+                kind=f"UnitTest",
+                workflow="unit-test-workflow",
+            )
+        )
+
+        max_errors = random.randint(3, 15)
+        retry_base = random.randint(5, 50)
+        retry_delay_max = random.randint(100, 200)
+
+        configuration = events.Configuration(
+            event_handler=event_handler,
+            namespace="unit-test",
+            max_unknown_errors=max_errors,
+            retry_delay_base=retry_base,
+            retry_delay_jitter=0,
+            retry_delay_max=retry_delay_max,
+        )
+
+        async with asyncio.timeout(0.1), asyncio.TaskGroup() as tg:
+            chief_task = tg.create_task(
+                events.chief_of_the_watch(
+                    api=mock_api,
+                    tg=tg,
+                    watch_requests=watch_requests,
+                    configuration=configuration,
+                ),
+                name="chief-of-the-watch-unit-test",
+            )
+
+            await asyncio.wait_for(watch_requests.join(), timeout=0.1)
+
+            await watch_requests.put(events.StopTheWatch())
+
+        self.assertEqual(max_errors, watch_call_count)
+        self.assertEqual(max_errors, handled_event_count)
+
+        for retry, call_args in enumerate(sleep_mock.call_args_list):
+            expected_sleep = min(2**retry * retry_base, retry_delay_max)
+            self.assertEqual(expected_sleep, call_args.args[0])
+
+        self.assertEqual(max_errors - 1, sleep_mock.call_count)
 
         self.assertTrue(chief_task.done())
         self.assertIsNone(chief_task.result())

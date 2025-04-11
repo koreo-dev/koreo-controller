@@ -44,6 +44,10 @@ class Configuration(NamedTuple):
 
     max_unknown_errors: int = 10
 
+    retry_delay_base: int = 10
+    retry_delay_jitter: int = 15
+    retry_delay_max: int = 300
+
 
 def _watch_key(api_version: str, kind: str):
     return f"{kind}.{api_version}"
@@ -237,7 +241,6 @@ async def _watchstander_task(
     name = f"{kind}.{api_group}.{version}"
     restarts = 0
     error_restarts = 0
-    tasks: set[asyncio.Task] = set()
     while True:
         # TODO: Use resource for setup, resource should include workflow id
         # TODO: Race with restart to replay the wathc on workflow updates
@@ -251,16 +254,12 @@ async def _watchstander_task(
             ),
             name=f"watchstander-{name}-{restarts}-{error_restarts}",
         )
-        tasks.add(watchstander_task)
-        watchstander_task.add_done_callback(tasks.remove)
         restarts += 1
 
         command_queue_task = asyncio.create_task(
             command_queue.get(),
             name=f"command-queue-{name}-{restarts}-{error_restarts}",
         )
-        tasks.add(command_queue_task)
-        command_queue_task.add_done_callback(tasks.remove)
 
         await asyncio.wait(
             [watchstander_task, command_queue_task],
@@ -275,9 +274,21 @@ async def _watchstander_task(
                 if isinstance(err, (asyncio.CancelledError, KeyboardInterrupt)):
                     raise err
 
+                delay = min(
+                    (2**error_restarts) * configuration.retry_delay_base
+                    + random.randint(0, configuration.retry_delay_jitter),
+                    configuration.retry_delay_max,
+                )
+
                 error_restarts += 1
                 if error_restarts < configuration.max_unknown_errors:
-                    logger.info(f"Restarting the watch for {name} due to error {err}")
+                    logger.info(
+                        f"Waiting {delay} seconds before restarting the watch "
+                        f"for {name} due to error {err}"
+                    )
+
+                    await asyncio.sleep(delay)
+
                     continue
 
                 logger.error(
