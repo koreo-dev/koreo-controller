@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 import random
 import string
 import unittest
@@ -15,7 +15,8 @@ def _get_name():
 
 
 class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
-    async def test_reconcile_uncached_is_a_noop(self):
+    @patch("kr8s.asyncio.api")
+    async def test_reconcile_uncached_is_a_noop(self, api_mock):
         resource = reconcile.Resource(
             group="unit.test",
             version="v1test1",
@@ -32,7 +33,8 @@ class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
-    async def test_reconcile_cached(self):
+    @patch("kr8s.asyncio.api")
+    async def test_reconcile_cached(self, api_mock):
         cacher, queue = reconcile.get_event_handler(namespace="unit-test")
 
         resource_name = _get_name()
