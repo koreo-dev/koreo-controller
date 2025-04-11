@@ -1,7 +1,26 @@
 import asyncio
 import logging
 
-logging.basicConfig(format="%(name)s\t:%(levelname)s: %(message)s", level=logging.INFO)
+import json
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        record_dict = {
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "name": record.name,
+            "time": self.formatTime(record),
+        }
+        return json.dumps(record_dict)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 logging.getLogger(name="httpcore.connection").setLevel(logging.WARNING)
 logging.getLogger(name="httpcore.http11").setLevel(logging.WARNING)
