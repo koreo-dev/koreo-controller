@@ -364,7 +364,7 @@ def _check_cache_and_get_lock(
 
     # Last outcome was a retry, need to check how close we are to decide.
     if isinstance(last_reconcile.outcome, Retry):
-        if seconds_to_wait > 1:
+        if seconds_to_wait:
             return None
 
         return cached_resource.reconcile_lock
