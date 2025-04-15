@@ -1,7 +1,8 @@
-import asyncio
-import logging
-
 import json
+import logging
+import os
+
+import asyncio
 
 
 class JsonFormatter(logging.Formatter):
@@ -19,14 +20,16 @@ handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+log_level = os.getenv("LOG_LEVEL", logging.INFO)
+logger.setLevel(log_level)
 logger.addHandler(handler)
 
-logging.getLogger(name="httpcore.connection").setLevel(logging.WARNING)
-logging.getLogger(name="httpcore.http11").setLevel(logging.WARNING)
-logging.getLogger(name="httpx").setLevel(logging.WARNING)
-logging.getLogger(name="kr8s._api").setLevel(logging.WARNING)
-logging.getLogger(name="kr8s._auth").setLevel(logging.WARNING)
+lib_log_level = os.getenv("LIB_LOG_LEVEL", logging.WARNING)
+logging.getLogger(name="httpcore.connection").setLevel(lib_log_level)
+logging.getLogger(name="httpcore.http11").setLevel(lib_log_level)
+logging.getLogger(name="httpx").setLevel(lib_log_level)
+logging.getLogger(name="kr8s._api").setLevel(lib_log_level)
+logging.getLogger(name="kr8s._auth").setLevel(lib_log_level)
 
 import os
 
