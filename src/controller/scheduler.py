@@ -87,7 +87,7 @@ async def orchestrator[T](
         else:
             up_next = heapq.heappop(request_schedule)
             next_scheduled_work = up_next.at - time.monotonic()
-            if next_scheduled_work < 1:
+            if next_scheduled_work <= 0:
                 await work.put(up_next)
                 continue
 
