@@ -23,8 +23,7 @@ async def get_full_kind(
     lookup_lock = _lookup_locks.get(lookup_kind)
     if lookup_lock:
         try:
-            async with asyncio.timeout(LOOKUP_TIMEOUT):
-                await lookup_lock.wait()
+            await asyncio.wait_for(lookup_lock.wait(), timeout=LOOKUP_TIMEOUT)
         except asyncio.TimeoutError:
             pass
 
