@@ -168,13 +168,12 @@ def _hash_resource(resource: dict):
 
 
 async def reconcile_resource(
+    api: kr8s.asyncio.Api,
     payload: Resource,
     ok_frequency_seconds: int,
     sys_error_retries: int,
     user_retries: int,
 ):
-    api = await kr8s.asyncio.api()
-
     if not (cached_resource := _load_cached_resource(payload)):
         return None
 

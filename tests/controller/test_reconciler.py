@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 import random
 import string
 import unittest
@@ -15,8 +15,9 @@ def _get_name():
 
 
 class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
-    @patch("kr8s.asyncio.api")
-    async def test_reconcile_uncached_is_a_noop(self, api_mock):
+    async def test_reconcile_uncached_is_a_noop(self):
+        mock_api = AsyncMock(kr8s.asyncio.Api)
+
         resource = reconcile.Resource(
             group="unit.test",
             version="v1test1",
@@ -25,6 +26,7 @@ class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
             namespace=_get_name(),
         )
         result = await reconcile.reconcile_resource(
+            api=mock_api,
             payload=resource,
             ok_frequency_seconds=60,
             sys_error_retries=0,
@@ -33,8 +35,9 @@ class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
-    @patch("kr8s.asyncio.api")
-    async def test_reconcile_cached(self, api_mock):
+    async def test_reconcile_cached(self):
+        mock_api = AsyncMock(kr8s.asyncio.Api)
+
         cacher, queue = reconcile.get_event_handler(namespace="unit-test")
 
         resource_name = _get_name()
@@ -73,6 +76,7 @@ class TestReconcileResource(unittest.IsolatedAsyncioTestCase):
         )
 
         result = await reconcile.reconcile_resource(
+            api=mock_api,
             payload=resource,
             ok_frequency_seconds=60,
             sys_error_retries=0,
