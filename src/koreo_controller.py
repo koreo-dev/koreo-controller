@@ -113,6 +113,8 @@ async def _koreo_resource_cache_manager(
 
 
 async def main():
+    logger.info("Koreo Controller Starting")
+
     api = await kr8s.asyncio.api()
     api.timeout = RECONNECT_TIMEOUT
 

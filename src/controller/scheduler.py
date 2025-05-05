@@ -218,10 +218,8 @@ async def _worker[T](
         return False
 
     if isinstance(result, PermFail):
-        logger.info(
-            f"PermFail from {configuration.work_processor.__qualname__} "
-            f"({request.user_retries} retries)"
-        )
+        logger.info(f"PermFail ({request.user_retries} retries)")
+        logger.debug(f"PermFail ({result.message})")
         return False
 
     # User-requested Retry case
