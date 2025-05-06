@@ -4,12 +4,29 @@ import unittest
 
 import kr8s.asyncio
 
-from controller.kind_lookup import get_full_kind, _reset, _lookup_locks
+from controller import kind_lookup
 
 
 class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.original_lookup_timeout = kind_lookup.LOOKUP_TIMEOUT
+        self.original_lookup_timeout_retry_base = kind_lookup.LOOKUP_TIMEOUT_RETRY_BASE
+        self.original_lookup_timeout_retry_jitter = (
+            kind_lookup.LOOKUP_TIMEOUT_RETRY_JITTER
+        )
+
+        kind_lookup.LOOKUP_TIMEOUT = 0.01
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_BASE = 0.05
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_JITTER = 0
+
     def tearDown(self):
-        _reset()
+        kind_lookup._reset()
+
+        kind_lookup.LOOKUP_TIMEOUT = self.original_lookup_timeout
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_BASE = self.original_lookup_timeout_retry_base
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_JITTER = (
+            self.original_lookup_timeout_retry_jitter
+        )
 
     async def test_ok_lookup(self):
         plural_kind = "unittesties"
@@ -19,7 +36,7 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
 
         api_version = "unit.test/v1"
 
-        result = await get_full_kind(api_mock, "UnitTest", api_version)
+        result = await kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
 
         self.assertEqual(result, f"{plural_kind}.{api_version}")
         self.assertEqual(1, api_mock.lookup_kind.call_count)
@@ -32,10 +49,10 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
 
         api_version = "unit.test/v1"
 
-        result = await get_full_kind(api_mock, "UnitTest", api_version)
+        result = await kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
         self.assertEqual(result, f"{plural_kind}.{api_version}")
 
-        result = await get_full_kind(api_mock, "UnitTest", api_version)
+        result = await kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
         self.assertEqual(result, f"{plural_kind}.{api_version}")
 
         self.assertEqual(1, api_mock.lookup_kind.call_count)
@@ -53,9 +70,15 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
         api_version = "unit.test/v1"
 
         tasks = [
-            asyncio.create_task(get_full_kind(api_mock, "UnitTest", api_version)),
-            asyncio.create_task(get_full_kind(api_mock, "UnitTest", api_version)),
-            asyncio.create_task(get_full_kind(api_mock, "UnitTest", api_version)),
+            asyncio.create_task(
+                kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
+            ),
+            asyncio.create_task(
+                kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
+            ),
+            asyncio.create_task(
+                kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
+            ),
         ]
         done, pending = await asyncio.wait(tasks)
 
@@ -67,13 +90,46 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(1, api_mock.lookup_kind.call_count)
 
+    async def test_multiple_requests_one_cancelled(self):
+        plural_kind = "unittesties"
+
+        async def lookup(_):
+            await asyncio.sleep(0)
+            return (None, plural_kind, None)
+
+        api_mock = AsyncMock(kr8s.asyncio.Api)
+        api_mock.lookup_kind.side_effect = lookup
+
+        api_version = "unit.test/v1"
+
+        async with asyncio.TaskGroup() as tg:
+            cancelled_task = tg.create_task(
+                kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
+            )
+            successful_task = tg.create_task(
+                kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
+            )
+
+            cancelled_task.cancel()
+
+        # Done, but cancelled.
+        self.assertTrue(cancelled_task.done())
+        self.assertTrue(cancelled_task.cancelled())
+
+        # Done, with a value.
+        self.assertTrue(successful_task.done())
+        self.assertFalse(successful_task.cancelled())
+        self.assertEqual(successful_task.result(), f"{plural_kind}.{api_version}")
+
+        self.assertEqual(1, api_mock.lookup_kind.call_count)
+
     async def test_missing_kind(self):
         api_mock = AsyncMock(kr8s.asyncio.Api)
         api_mock.lookup_kind.side_effect = ValueError("Kind not found")
 
         api_version = "unit.test/v1"
 
-        full_kind = await get_full_kind(api_mock, "UnitTest", api_version)
+        full_kind = await kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
 
         self.assertIsNone(full_kind)
 
@@ -88,7 +144,10 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
 
         api_version = "unit.test/v1"
 
-        result = await get_full_kind(api_mock, "UnitTest", api_version)
+        kind_lookup.LOOKUP_TIMEOUT = 0.1
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_BASE = 0.1
+
+        result = await kind_lookup.get_full_kind(api_mock, "UnitTest", api_version)
         self.assertEqual(result, f"{plural_kind}.{api_version}")
 
     async def test_too_many_timeout_retries(self):
@@ -97,23 +156,11 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
 
         api_version = "unit.test/v1"
 
-        with self.assertRaises(Exception):
-            await get_full_kind(api_mock, "unittest", api_version)
-
-    async def test_lock_timeout(self):
-        api_mock = AsyncMock(kr8s.asyncio.Api)
-        api_mock.lookup_kind.side_effect = asyncio.TimeoutError()
-
-        api_version = "unit.test/v1"
-
-        lock_mock = AsyncMock(asyncio.Event)
-        lock_mock.wait.side_effect = asyncio.TimeoutError()
-
-        lookup_kind = f"unittest.{api_version}"
-        _lookup_locks[lookup_kind] = lock_mock
+        kind_lookup.LOOKUP_TIMEOUT = 0.1
+        kind_lookup.LOOKUP_TIMEOUT_RETRY_BASE = 0.1
 
         with self.assertRaises(Exception):
-            await get_full_kind(api_mock, "unittest", api_version)
+            await kind_lookup.get_full_kind(api_mock, "unittest", api_version)
 
     async def test_lock_cleared_on_errors(self):
         api_mock = AsyncMock(kr8s.asyncio.Api)
@@ -122,4 +169,4 @@ class TestGetFullKind(unittest.IsolatedAsyncioTestCase):
         api_version = "unit.test/v1"
 
         with self.assertRaises(ZeroDivisionError):
-            await get_full_kind(api_mock, "unittest", api_version)
+            await kind_lookup.get_full_kind(api_mock, "unittest", api_version)
