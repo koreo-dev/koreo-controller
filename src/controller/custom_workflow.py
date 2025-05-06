@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 import kr8s.asyncio
 
@@ -8,6 +9,11 @@ from controller import scheduler
 from controller import reconcile
 
 logger = logging.getLogger("koreo.controller.reconcile")
+
+RECONNECT_TIMEOUT = 900
+
+MANAGED_RESOURCE_API_SERVER_URL = os.environ.get("MANAGED_RESOURCE_API_SERVER_URL")
+MANAGED_RESOURCE_NAMESPACE = os.environ.get("MANAGED_RESOURCE_NAMESPACE")
 
 
 def _configure_reconciler(
@@ -44,8 +50,26 @@ async def workflow_controller_system(
         event_handler=event_handler, namespace=namespace
     )
 
+    if not MANAGED_RESOURCE_API_SERVER_URL:
+        logger.debug(f"Managing resources in controller cluster")
+        managed_resource_api = api
+    else:
+        if MANAGED_RESOURCE_NAMESPACE:
+            managed_resource_namespace = MANAGED_RESOURCE_NAMESPACE
+        else:
+            managed_resource_namespace = kr8s.ALL
+
+        logger.info(
+            f"Managing resources in remote cluster ({MANAGED_RESOURCE_API_SERVER_URL}); namespace: {managed_resource_namespace})"
+        )
+
+        managed_resource_api = await kr8s.asyncio.api(
+            url=MANAGED_RESOURCE_API_SERVER_URL, namespace=managed_resource_namespace
+        )
+        managed_resource_api.timeout = RECONNECT_TIMEOUT
+
     scheduler_config = scheduler.Configuration(
-        work_processor=_configure_reconciler(api=api)
+        work_processor=_configure_reconciler(api=managed_resource_api)
     )
 
     async with asyncio.TaskGroup() as tg:
