@@ -28,15 +28,37 @@ jobs:
       - name: Run tests
         run: pdm run pytest
 
-  build-image:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Extract branch name
+        run: |
+          BRANCH_NAME="${GITHUB_REF_NAME#refs/heads/}"
+          BRANCH_NAME_MINOR="${BRANCH_NAME%/*}"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Authenticate to GCP with OIDC
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIP_PROVIDER }}
+          service_account: ${{ vars.SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker us-docker.pkg.dev
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and tag Docker image
-        run: docker build .
+        run: |
+          docker build -t us-docker.pkg.dev/koreo-dev/koreo-dev/controller:$BRANCH_NAME .
+
+      - name: Push image to Artifact Registry
+        run: |
+          docker push us-docker.pkg.dev/koreo-dev/koreo-dev/controller:$BRANCH_NAME
