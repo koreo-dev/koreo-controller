@@ -40,8 +40,11 @@ jobs:
 
       - name: Extract branch name
         run: |
-          BRANCH_NAME="${GITHUB_REF_NAME#refs/heads/}"
-          BRANCH_NAME_MINOR="${BRANCH_NAME%/*}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH_NAME="${{ github.head_ref }}"
+          else
+            BRANCH_NAME="${GITHUB_REF_NAME#refs/heads/}"
+          fi
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Authenticate to GCP with OIDC
