@@ -69,16 +69,28 @@ async def workflow_controller_system(
 
         logger.info(f"Managing resources in remote cluster")
 
-        managed_resource_api = await kr8s.asyncio.api(
-            url=MANAGED_RESOURCE_API_SERVER_URL,
-            kubeconfig=MANAGED_RESOURCE_KUBECONFIG,
-            context=MANAGED_RESOURCE_CONTEXT,
-            serviceaccount=MANAGED_RESOURCE_SERVICEACCOUNT,
-            namespace=managed_resource_namespace,
-        )
+        try:
+            managed_resource_api = await kr8s.asyncio.api(
+                url=MANAGED_RESOURCE_API_SERVER_URL,
+                kubeconfig=MANAGED_RESOURCE_KUBECONFIG,
+                context=MANAGED_RESOURCE_CONTEXT,
+                serviceaccount=MANAGED_RESOURCE_SERVICEACCOUNT,
+                namespace=managed_resource_namespace,
+            )
+        except BaseException as err:
+            logger.error(f"Failed to create remote cluster api with {err}")
+            raise
 
-        logger.info(f"Remote cluster version: {await managed_resource_api.version()}")
-        logger.info(f"Remote cluster subject: {await managed_resource_api.whoami()}")
+        try:
+            logger.info(
+                f"Remote cluster version: {await managed_resource_api.version()}"
+            )
+            logger.info(
+                f"Remote cluster subject: {await managed_resource_api.whoami()}"
+            )
+        except BaseException as err:
+            logger.error(f"Failed to log remote cluster api info {err}")
+            raise
 
         managed_resource_api.timeout = RECONNECT_TIMEOUT
 
