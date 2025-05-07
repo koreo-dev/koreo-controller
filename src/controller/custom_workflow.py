@@ -76,6 +76,10 @@ async def workflow_controller_system(
             serviceaccount=MANAGED_RESOURCE_SERVICEACCOUNT,
             namespace=managed_resource_namespace,
         )
+
+        logger.info(f"Remote cluster version: {await managed_resource_api.version()}")
+        logger.info(f"Remote cluster subject: {await managed_resource_api.whoami()}")
+
         managed_resource_api.timeout = RECONNECT_TIMEOUT
 
     scheduler_config = scheduler.Configuration(
