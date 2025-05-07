@@ -13,6 +13,9 @@ logger = logging.getLogger("koreo.controller.reconcile")
 RECONNECT_TIMEOUT = 900
 
 MANAGED_RESOURCE_API_SERVER_URL = os.environ.get("MANAGED_RESOURCE_API_SERVER_URL")
+MANAGED_RESOURCE_KUBECONFIG = os.environ.get("MANAGED_RESOURCE_KUBECONFIG")
+MANAGED_RESOURCE_CONTEXT = os.environ.get("MANAGED_RESOURCE_CONTEXT")
+MANAGED_RESOURCE_SERVICEACCOUNT = os.environ.get("MANAGED_RESOURCE_SERVICEACCOUNT")
 MANAGED_RESOURCE_NAMESPACE = os.environ.get("MANAGED_RESOURCE_NAMESPACE")
 
 
@@ -50,7 +53,12 @@ async def workflow_controller_system(
         event_handler=event_handler, namespace=namespace
     )
 
-    if not MANAGED_RESOURCE_API_SERVER_URL:
+    if not (
+        MANAGED_RESOURCE_API_SERVER_URL
+        or MANAGED_RESOURCE_KUBECONFIG
+        or MANAGED_RESOURCE_CONTEXT
+        or MANAGED_RESOURCE_SERVICEACCOUNT
+    ):
         logger.debug(f"Managing resources in controller cluster")
         managed_resource_api = api
     else:
@@ -59,12 +67,14 @@ async def workflow_controller_system(
         else:
             managed_resource_namespace = kr8s.ALL
 
-        logger.info(
-            f"Managing resources in remote cluster ({MANAGED_RESOURCE_API_SERVER_URL}); namespace: {managed_resource_namespace})"
-        )
+        logger.info(f"Managing resources in remote cluster")
 
         managed_resource_api = await kr8s.asyncio.api(
-            url=MANAGED_RESOURCE_API_SERVER_URL, namespace=managed_resource_namespace
+            url=MANAGED_RESOURCE_API_SERVER_URL,
+            kubeconfig=MANAGED_RESOURCE_KUBECONFIG,
+            context=MANAGED_RESOURCE_CONTEXT,
+            serviceaccount=MANAGED_RESOURCE_SERVICEACCOUNT,
+            namespace=managed_resource_namespace,
         )
         managed_resource_api.timeout = RECONNECT_TIMEOUT
 
