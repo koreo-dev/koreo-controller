@@ -284,7 +284,7 @@ async def _watchstander_task(
                 if error_restarts < configuration.max_unknown_errors:
                     logger.info(
                         f"Waiting {delay} seconds before restarting the watch "
-                        f"for {name} due to error {err}"
+                        f"for {name} due to error '{err}'"
                     )
 
                     await asyncio.sleep(delay)
