@@ -104,9 +104,10 @@ async def maintain_cache(
                 "due to normal reconnect timeout."
             )
             error_retries = 0
-        except:
+        except BaseException as err:
             logger.exception(
-                f"Restarting {plural_kind}.{api_version} cache maintainer watch."
+                f"Restarting {plural_kind}.{api_version} cache maintainer watch "
+                f"due to error: {err}"
             )
 
             error_retries += 1
