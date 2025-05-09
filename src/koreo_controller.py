@@ -121,35 +121,35 @@ async def _koreo_resource_cache_manager(
 
 
 def _cache_task_complete(cache_task: asyncio.Task):
+    if cache_task.cancelled():
+        logger.info(f"Cache task ({cache_task.get_name()}) quit due to cancel.")
+        return
+
     if cache_task.exception():
         logger.error(
             f"Cache task ({cache_task.get_name()}) quit due to error: {cache_task.exception()}."
         )
         raise SystemExit(EXIT_CACHER_ERROR)
 
-    if cache_task.cancelled:
-        logger.info(f"Cache task ({cache_task.get_name()}) quit due to cancel.")
-        return
-
     if not HOT_LOADING:
         return
 
-    logger.error("Cache task ({cache_task.get_name()}) quit due to unexpected return.")
+    logger.error(f"Cache task ({cache_task.get_name()}) quit due to unexpected return.")
     raise SystemExit(EXIT_CACHER_UNEXPECTED_RETURN)
 
 
 def _controller_engine_complete(controller_task: asyncio.Task):
+    if controller_task.cancelled():
+        logger.info("Controller engine quit due to cancel.")
+        return
+
     if controller_task.exception():
         logger.error(
             f"Controller engine quit due to error: {controller_task.exception()}."
         )
         raise SystemExit(EXIT_CONTROLLER_ERROR)
 
-    if controller_task.cancelled:
-        logger.info("Controller engine quit due to cancel.")
-        return
-
-    logger.error("Controller engine quit due to unexpected return.")
+    logger.error(f"Controller engine quit due to unexpected return.")
     raise SystemExit(EXIT_CONTROLLER_UNEXPECTED_RETURN)
 
 
