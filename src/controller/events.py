@@ -5,6 +5,8 @@ import random
 
 import kr8s.asyncio
 
+from koreo.constants import PLURAL_LOOKUP_NEEDED
+
 from controller.kind_lookup import get_full_kind
 
 logger = logging.getLogger("koreo.controller.events")
@@ -335,7 +337,23 @@ async def _watchstander(
     logger.info(f"Controller starting for `{full_kind}`.")
 
     try:
-        watcher = api.async_watch(kind=full_kind, namespace=configuration.namespace)
+        k8s_object_class = kr8s.objects.get_class(
+            kind=f"{kind_title}.{api_version}", _asyncio=True
+        )
+
+        if k8s_object_class.plural == PLURAL_LOOKUP_NEEDED:
+            (plural, _) = full_kind.split(".", 1)
+            logger.debug(f"Setting {kind_title}'s API Object plural to '{plural}'")
+            k8s_object_class.plural = plural
+            k8s_object_class.endpoint = plural
+
+    except:
+        k8s_object_class = full_kind
+
+    try:
+        watcher = api.async_watch(
+            kind=k8s_object_class, namespace=configuration.namespace
+        )
 
         async with asyncio.timeout(configuration.reconnect_timeout):
             async for event, resource in watcher:

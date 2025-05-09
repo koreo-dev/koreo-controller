@@ -63,6 +63,14 @@ TEMPLATE_NAMESPACE = os.environ.get("TEMPLATE_NAMESPACE", "koreo-testing")
 
 RESOURCE_NAMESPACE = os.environ.get("RESOURCE_NAMESPACE", "koreo-testing")
 
+
+EXIT_CONTROLLER_ERROR = 1
+EXIT_CONTROLLER_UNEXPECTED_RETURN = 2
+
+EXIT_CACHER_ERROR = 5
+EXIT_CACHER_UNEXPECTED_RETURN = 6
+
+
 # NOTE: These are ordered so that each group's dependencies will already be
 # loaded when initially loaded into cache.
 KOREO_RESOURCES = [
@@ -112,6 +120,39 @@ async def _koreo_resource_cache_manager(
     )
 
 
+def _cache_task_complete(cache_task: asyncio.Task):
+    if cache_task.cancelled():
+        logger.info(f"Cache task ({cache_task.get_name()}) quit due to cancel.")
+        return
+
+    if cache_task.exception():
+        logger.error(
+            f"Cache task ({cache_task.get_name()}) quit due to error: {cache_task.exception()}."
+        )
+        raise SystemExit(EXIT_CACHER_ERROR)
+
+    if not HOT_LOADING:
+        return
+
+    logger.error(f"Cache task ({cache_task.get_name()}) quit due to unexpected return.")
+    raise SystemExit(EXIT_CACHER_UNEXPECTED_RETURN)
+
+
+def _controller_engine_complete(controller_task: asyncio.Task):
+    if controller_task.cancelled():
+        logger.info("Controller engine quit due to cancel.")
+        return
+
+    if controller_task.exception():
+        logger.error(
+            f"Controller engine quit due to error: {controller_task.exception()}."
+        )
+        raise SystemExit(EXIT_CONTROLLER_ERROR)
+
+    logger.error(f"Controller engine quit due to unexpected return.")
+    raise SystemExit(EXIT_CONTROLLER_UNEXPECTED_RETURN)
+
+
 async def main():
     logger.info("Koreo Controller Starting")
 
@@ -141,6 +182,7 @@ async def main():
                 ),
                 name=f"cache-maintainer-{kind_title.lower()}",
             )
+            cache_task.add_done_callback(_cache_task_complete)
 
         # This is the schedule watcher / dispatcher for workflow crdRefs.
         orchestrator_task = asyncio.create_task(
@@ -150,6 +192,7 @@ async def main():
                 workflow_updates_queue=workflow_updates_queue,
             )
         )
+        orchestrator_task.add_done_callback(_controller_engine_complete)
 
 
 if __name__ == "__main__":
