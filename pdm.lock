@@ -5,7 +5,7 @@
 groups = ["default", "all", "test", "tooling"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:67b060cf2aff54ef2c37d862663fe32cdd814b4a9d81c9ee3aa8ac77f4f476e6"
+content_hash = "sha256:eb201f3975773d778d21c252fc4261e32aa9f75da203ca6ecedb45a1cd7be0b4"
 
 [[metadata.targets]]
 requires_python = "==3.13.*"
@@ -328,7 +328,7 @@ files = [
 
 [[package]]
 name = "koreo-core"
-version = "0.1.10"
+version = "0.1.11"
 requires_python = ">=3.13"
 summary = "Type-safe and testable KRM Templates and Workflows."
 groups = ["default", "all"]
@@ -339,23 +339,23 @@ dependencies = [
     "kr8s==0.20.6",
 ]
 files = [
-    {file = "koreo_core-0.1.10-py3-none-any.whl", hash = "sha256:5b91128c7ddb0c7e57128292daafbcb35aeefccfc56af52aca0ecb7531fb084a"},
-    {file = "koreo_core-0.1.10.tar.gz", hash = "sha256:0178aa48f85299b47c5cc18e8085344abe7197a475f21269ce08fc815e139d3e"},
+    {file = "koreo_core-0.1.11-py3-none-any.whl", hash = "sha256:f866e71ac58dd08d97df4e9c5cda2b23d829478da36619430ad1567ccf9482ff"},
+    {file = "koreo_core-0.1.11.tar.gz", hash = "sha256:a2e37104b51f54fd404a38920d496de91cc8541216f319ee698e8a2558d31666"},
 ]
 
 [[package]]
 name = "koreo-core"
-version = "0.1.10"
+version = "0.1.11"
 extras = ["test", "tooling"]
 requires_python = ">=3.13"
 summary = "Type-safe and testable KRM Templates and Workflows."
 groups = ["all"]
 dependencies = [
-    "koreo-core==0.1.10",
+    "koreo-core==0.1.11",
 ]
 files = [
-    {file = "koreo_core-0.1.10-py3-none-any.whl", hash = "sha256:5b91128c7ddb0c7e57128292daafbcb35aeefccfc56af52aca0ecb7531fb084a"},
-    {file = "koreo_core-0.1.10.tar.gz", hash = "sha256:0178aa48f85299b47c5cc18e8085344abe7197a475f21269ce08fc815e139d3e"},
+    {file = "koreo_core-0.1.11-py3-none-any.whl", hash = "sha256:f866e71ac58dd08d97df4e9c5cda2b23d829478da36619430ad1567ccf9482ff"},
+    {file = "koreo_core-0.1.11.tar.gz", hash = "sha256:a2e37104b51f54fd404a38920d496de91cc8541216f319ee698e8a2558d31666"},
 ]
 
 [[package]]

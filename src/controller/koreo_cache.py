@@ -26,14 +26,22 @@ async def load_cache(
 ):
     logger.debug(f"Building initial {plural_kind}.{api_version} cache.")
 
-    k8s_resource_class = kr8s.objects.new_class(
-        version=api_version,
-        kind=kind_title,
-        plural=plural_kind,
-        namespaced=True,
-        scalable=False,
-        asyncio=True,
-    )
+    try:
+        k8s_resource_class = kr8s.objects.get_class(
+            kind=kind_title,
+            version=api_version,
+            _asyncio=True,
+        )
+    except KeyError:
+        k8s_resource_class = kr8s.objects.new_class(
+            version=api_version,
+            kind=kind_title,
+            plural=plural_kind,
+            namespaced=True,
+            scalable=False,
+            asyncio=True,
+        )
+
     resources = k8s_resource_class.list(api=api, namespace=namespace)
 
     async for resource in resources:
@@ -60,14 +68,21 @@ async def maintain_cache(
 ):
     logger.debug(f"Maintaining {plural_kind}.{api_version} Cache.")
 
-    k8s_resource_class = kr8s.objects.new_class(
-        version=api_version,
-        kind=kind_title,
-        plural=plural_kind,
-        namespaced=True,
-        scalable=False,
-        asyncio=True,
-    )
+    try:
+        k8s_resource_class = kr8s.objects.get_class(
+            kind=kind_title,
+            version=api_version,
+            _asyncio=True,
+        )
+    except KeyError:
+        k8s_resource_class = kr8s.objects.new_class(
+            version=api_version,
+            kind=kind_title,
+            plural=plural_kind,
+            namespaced=True,
+            scalable=False,
+            asyncio=True,
+        )
 
     error_retries = 0
 
@@ -104,9 +119,10 @@ async def maintain_cache(
                 "due to normal reconnect timeout."
             )
             error_retries = 0
-        except:
+        except BaseException as err:
             logger.exception(
-                f"Restarting {plural_kind}.{api_version} cache maintainer watch."
+                f"Restarting {plural_kind}.{api_version} cache maintainer watch "
+                f"due to error: {err}"
             )
 
             error_retries += 1
