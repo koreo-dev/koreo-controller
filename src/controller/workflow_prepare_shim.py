@@ -24,7 +24,7 @@ def get_workflow_preparer():
     workflow_update_queue = WatchQueue()
 
     async def prepare_workflow(cache_key: str, spec: dict):
-        logger.info(f"Preparing workflow handler from cache key: {cache_key}")
+        logger.debug(f"Preparing workflow handler from cache key: {cache_key}")
         prepare_result = await prepare.prepare_workflow(cache_key=cache_key, spec=spec)
 
         if not is_unwrapped_ok(prepare_result):
@@ -32,7 +32,7 @@ def get_workflow_preparer():
             return prepare_result
 
         workflow, watched = prepare_result
-        logger.info(f"Found workflow handler from cache key: {cache_key}")
+        logger.debug(f"Found workflow handler from cache key: {cache_key}")
 
         await _workflow_post_prepare(
             workflow_update_queue=workflow_update_queue,
