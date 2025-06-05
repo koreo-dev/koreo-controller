@@ -7,9 +7,9 @@ authors = [
     {name = "Robert Kluin", email = "robert.kluin@realkinetic.com"},
 ]
 dependencies = [
-    "koreo-core==0.1.11",
-    "cel-python==0.2.0",
-    "kr8s==0.20.6",
+    "koreo-core==0.1.12",
+    "cel-python==0.3.0",
+    "kr8s==0.20.7",
     "uvloop==0.21.0",
 ]
 requires-python = "==3.13.*"
