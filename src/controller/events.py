@@ -46,9 +46,9 @@ class Configuration(NamedTuple):
 
     max_unknown_errors: int = 10
 
-    retry_delay_base: int = 10
-    retry_delay_jitter: int = 15
-    retry_delay_max: int = 300
+    retry_delay_base: int = 30
+    retry_delay_jitter: int = 30
+    retry_delay_max: int = 900
 
 
 def _watch_key(api_version: str, kind: str):
