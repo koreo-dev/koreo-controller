@@ -50,7 +50,12 @@ async def workflow_controller_system(
     event_handler, request_queue = reconcile.get_event_handler(namespace=namespace)
 
     event_config = events.Configuration(
-        event_handler=event_handler, namespace=namespace
+        event_handler=event_handler,
+        namespace=namespace,
+        max_unknown_errors=10,
+        retry_delay_base=30,
+        retry_delay_jitter=30,
+        retry_delay_max=900,
     )
 
     if not (
@@ -95,7 +100,11 @@ async def workflow_controller_system(
         managed_resource_api.timeout = RECONNECT_TIMEOUT
 
     scheduler_config = scheduler.Configuration(
-        work_processor=_configure_reconciler(api=managed_resource_api)
+        concurrency=2,
+        frequency_seconds=1200,
+        retry_delay_base=30,
+        retry_delay_max=900,
+        work_processor=_configure_reconciler(api=managed_resource_api),
     )
 
     async with asyncio.TaskGroup() as tg:
