@@ -10,9 +10,9 @@ logger = logging.getLogger("koreo.controller.koreo_cache")
 
 MAX_SYS_ERRORS = 10
 
-RETRY_MAX_DELAY = 300
-RETRY_BASE_DELAY = 10
-RETRY_JITTER = 5
+RETRY_MAX_DELAY = 900
+RETRY_BASE_DELAY = 30
+RETRY_JITTER = 30
 
 
 async def load_cache(
@@ -53,7 +53,7 @@ async def load_cache(
             spec=resource.raw.get("spec", {}),
         )
 
-    logger.debug(f"Initial {plural_kind}.{api_version} cache load complete.")
+    logger.info(f"Initial {plural_kind}.{api_version} cache load complete.")
 
 
 async def maintain_cache(
@@ -120,21 +120,28 @@ async def maintain_cache(
             )
             error_retries = 0
         except BaseException as err:
-            logger.exception(
-                f"Restarting {plural_kind}.{api_version} cache maintainer watch "
-                f"due to error: {err}"
-            )
-
             error_retries += 1
 
             if error_retries > MAX_SYS_ERRORS:
-                logger.error(f"Retry limit ({MAX_SYS_ERRORS}) exceeded.")
+                logger.error(
+                    f"Retry limit ({MAX_SYS_ERRORS}) exceeded for"
+                    f"{plural_kind}.{api_version} cache maintainer watch"
+                )
+
                 raise
+
+            sleep_time = (
+                min((2**error_retries) * RETRY_BASE_DELAY, RETRY_MAX_DELAY)
+                + random.random() * RETRY_JITTER
+            )
+
+            logger.exception(
+                f"Waiting {sleep_time} seconds before restarting "
+                f"{plural_kind}.{api_version} cache maintainer watch "
+                f"due to error: {err}"
+            )
 
             # NOTE: This is just to prevent completely blowing up the API
             # Server if there's an issue. It probably should have a back-off
             # based on the last retry time.
-            await asyncio.sleep(
-                min((2**error_retries) * RETRY_BASE_DELAY, RETRY_MAX_DELAY)
-                + random.random() * RETRY_JITTER
-            )
+            await asyncio.sleep(sleep_time)
