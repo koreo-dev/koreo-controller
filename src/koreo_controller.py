@@ -85,25 +85,10 @@ async def _koreo_resource_cache_manager(
     preparer,
     shutdown_trigger: asyncio.Event,
 ):
-    # Block until completion.
-    try:
-        await koreo_cache.load_cache(
-            api=api,
-            namespace=namespace,
-            api_version=API_VERSION,
-            plural_kind=f"{kind_title.lower()}s",
-            kind_title=kind_title,
-            resource_class=resource_class,
-            preparer=preparer,
-        )
-    except:
-        shutdown_trigger.set()
-        raise
-
-    if not HOT_LOADING:
-        return
-
-    # Spawns long-term (infinite) cache maintainer in background
+    """
+    These are long-term (infinite) cache maintainers that will run in the
+    background to watch for updates to Koreo Resources.
+    """
     try:
         await koreo_cache.maintain_cache(
             api=api,
@@ -158,24 +143,66 @@ async def main():
         (KOREO_NAMESPACE, "Workflow", Workflow, prepare_workflow),
     )
 
+    for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
+        try:
+            # Load the Koreo resources sequentially, for efficiency purposes.
+            await koreo_cache.load_cache(
+                api=api,
+                namespace=namespace,
+                api_version=API_VERSION,
+                plural_kind=f"{kind_title.lower()}s",
+                kind_title=kind_title,
+                resource_class=resource_class,
+                preparer=preparer,
+            )
+
+            # There is a trailing return
+            continue
+
+        except KeyboardInterrupt:
+            logger.info(
+                f"Initiating shutdown due to user-request. (Koreo {kind_title} Resource Load)"
+            )
+
+        except asyncio.CancelledError:
+            logger.info(
+                f"Initiating shutdown due to cancel. (Koreo {kind_title} Resource Load)"
+            )
+
+        except BaseException as err:
+            logger.error(
+                f"Initiating shutdown due to error {err}. (Koreo {kind_title} Resource Load)"
+            )
+
+        except:
+            logger.critical(
+                f"Initiating shutdown due to non-error exception. (Koreo {kind_title} Resource Load)"
+            )
+
+        # This means the continue was not hit
+        return
+
     async with asyncio.TaskGroup() as main_tg:
         shutdown_trigger = asyncio.Event()
 
         tasks: list[asyncio.Task] = []
-        for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
-            tasks.append(
-                main_tg.create_task(
-                    _koreo_resource_cache_manager(
-                        api=api,
-                        namespace=namespace,
-                        kind_title=kind_title,
-                        resource_class=resource_class,
-                        preparer=preparer,
-                        shutdown_trigger=shutdown_trigger,
-                    ),
-                    name=f"cache-maintainer-{kind_title.lower()}",
+
+        if HOT_LOADING:
+            logger.info("Hot-loading Koreo Resource enabled")
+            for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
+                tasks.append(
+                    main_tg.create_task(
+                        _koreo_resource_cache_manager(
+                            api=api,
+                            namespace=namespace,
+                            kind_title=kind_title,
+                            resource_class=resource_class,
+                            preparer=preparer,
+                            shutdown_trigger=shutdown_trigger,
+                        ),
+                        name=f"cache-maintainer-{kind_title.lower()}",
+                    )
                 )
-            )
 
         # This is the schedule watcher / dispatcher for workflow crdRefs.
         tasks.append(

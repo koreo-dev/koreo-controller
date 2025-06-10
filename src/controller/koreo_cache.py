@@ -53,7 +53,7 @@ async def load_cache(
             spec=resource.raw.get("spec", {}),
         )
 
-    logger.debug(f"Initial {plural_kind}.{api_version} cache load complete.")
+    logger.info(f"Initial {plural_kind}.{api_version} cache load complete.")
 
 
 async def maintain_cache(
