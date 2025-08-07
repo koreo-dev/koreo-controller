@@ -45,7 +45,7 @@ def resource_events_status(telemetry: dict):
         schedule = scheduler_telemetry.get("schedule")
         if schedule:
             scheduler_telemetry["schedule"] = [
-                [scheduled_for - status_request_time, *rest]
+                [f"{scheduled_for - status_request_time:.4f}", *rest]
                 for scheduled_for, *rest in schedule
             ]
 
