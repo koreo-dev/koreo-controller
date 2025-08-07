@@ -34,6 +34,8 @@ class Configuration[T](NamedTuple):
     retry_delay_max: int = 300
     retry_delay_jitter: int = 30
 
+    telemetry_sink: asyncio.Queue | None = None
+
 
 class Request[T](NamedTuple):
     at: float  # Timestamp to, approximately, run at

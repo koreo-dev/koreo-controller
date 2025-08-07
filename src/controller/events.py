@@ -50,6 +50,8 @@ class Configuration(NamedTuple):
     retry_delay_jitter: int = 30
     retry_delay_max: int = 900
 
+    telemetry_sink: asyncio.Queue | None = None
+
 
 def _watch_key(api_version: str, kind: str):
     return f"{kind}.{api_version}"

@@ -126,7 +126,7 @@ async def _controller_engine_wrapper(
         shutdown_trigger.set()
 
 
-async def main():
+async def main(telemetry_sink: asyncio.Queue | None = None):
     logger.info("Koreo Controller Starting")
 
     api = await kr8s.asyncio.api()
@@ -213,6 +213,7 @@ async def main():
                         api=api,
                         namespace=RESOURCE_NAMESPACE,
                         workflow_updates_queue=workflow_updates_queue,
+                        telemetry_sink=telemetry_sink,
                     ),
                 ),
                 name="workflow-controller",
