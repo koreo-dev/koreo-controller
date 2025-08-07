@@ -62,15 +62,23 @@ async def aggregator(
         return
 
     while True:
-        telemetry_update = await telemetry_sink.get()
-        telemetry_data["__last_update__"] = time.monotonic()
+        try:
+            telemetry_update = await telemetry_sink.get()
+            # We don't want to retry if these fail to process.
+            telemetry_sink.task_done()
 
-        update_source = telemetry_update.get("source")
+            telemetry_data["__last_update__"] = time.monotonic()
 
-        if not update_source:
-            continue
+            update_source = telemetry_update.get("source")
+            if not update_source:
+                logging.debug(
+                    f"Malformed controller telemetry data ({telemetry_update})"
+                )
+                continue
 
-        telemetry_data[update_source] = telemetry_update.get("telemetry")
+            telemetry_data[update_source] = telemetry_update.get("telemetry")
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            raise
 
 
 async def status_main(telemetry_sink: asyncio.Queue | None = None):

@@ -44,7 +44,8 @@ async def main():
     if DIAGNOSTICS.lower().strip() != "enabled":
         return await controller_main()
 
-    telemetry_sink: asyncio.Queue | None = asyncio.Queue()
+    # Not 100% certain what the limit should be, perhaps higher.
+    telemetry_sink: asyncio.Queue | None = asyncio.Queue(100)
 
     try:
         async with asyncio.TaskGroup() as main_tg:

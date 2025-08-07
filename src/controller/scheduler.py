@@ -68,6 +68,16 @@ async def orchestrator[T](
     work: asyncio.Queue[Request[T] | Shutdown] = asyncio.Queue()
 
     while True:
+        try:
+            _emit_telemetry(
+                configuration=configuration,
+                request_schedule=request_schedule,
+                workers=workers,
+                work=work,
+            )
+        except:
+            logger.exception("Error emitting scheduler telemetry")
+
         # Ensure reconcilers are running
         if len(workers) < max(configuration.concurrency, 1):
             worker_task = tg.create_task(
@@ -128,6 +138,44 @@ async def orchestrator[T](
         except asyncio.TimeoutError:
             # Indicates it is time to run the next scheduled reconciliation
             continue
+
+
+def _emit_telemetry(
+    configuration: Configuration,
+    request_schedule: list[Request],
+    workers: set[asyncio.Task],
+    work: asyncio.Queue[Request | Shutdown],
+):
+    if not configuration.telemetry_sink:
+        return
+
+    try:
+        configuration.telemetry_sink.put_nowait(
+            {
+                "source": "scheduler",
+                "telemetry": {
+                    "schedule": [
+                        (
+                            request.at,
+                            request.payload,
+                            request.user_retries,
+                            request.sys_error_retries,
+                        )
+                        for request in request_schedule
+                    ],
+                    "workers": [
+                        {
+                            "done": worker.done(),
+                            "cancelled": worker.cancelled(),
+                        }
+                        for worker in workers
+                    ],
+                    "unscheduled_work": work.qsize(),
+                },
+            }
+        )
+    except asyncio.QueueFull:
+        logger.info("Telemetry queue full, skipping scheduler telemetry")
 
 
 async def _worker_task[T](
