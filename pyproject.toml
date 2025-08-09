@@ -18,19 +18,13 @@ requires-python = "==3.13.*"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 
-[tool.pdm]
-distribution = false
-
-[dependency-groups]
-test = [
+[tool.uv]
+dev-dependencies = [
     "pytest==8.4.0",
     "pytest-cov==6.1.1",
-]
-tooling = [
     "ruff==0.11.13",
     "pyright==1.1.401",
 ]
-all = ["koreo-core[test,tooling]"]
 
 [tool.pytest.ini_options]
 pythonpath = "src"
