@@ -11,6 +11,8 @@ dependencies = [
     "cel-python==0.3.0",
     "kr8s==0.20.7",
     "uvloop==0.21.0",
+    "starlette==0.47.2",
+    "uvicorn==0.35.0",
 ]
 requires-python = "==3.13.*"
 readme = "README.md"
