@@ -27,6 +27,7 @@ class Configuration[T](NamedTuple):
     concurrency: int = 5
 
     frequency_seconds: int = 1200
+    schedule_jitter: int = 90
     timeout_seconds: int = 30
 
     retry_max_retries: int = 10
@@ -259,7 +260,9 @@ async def _worker[T](
         # Ok, Skip, or DepSkip. Recheck at scheduled frequency.
         await requests.put(
             Request(
-                at=time.monotonic() + configuration.frequency_seconds,
+                at=time.monotonic()
+                + configuration.frequency_seconds
+                + random.randint(0, configuration.schedule_jitter),
                 payload=request.payload,
                 sys_error_retries=0,
                 user_retries=0,
@@ -273,6 +276,7 @@ async def _worker[T](
         return False
 
     # User-requested Retry case
+    # Should this have some jitter as well?
     reconcile_at = time.monotonic() + result.delay
 
     await requests.put(
