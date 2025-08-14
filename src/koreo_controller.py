@@ -49,8 +49,8 @@ async def main():
 
     try:
         async with asyncio.TaskGroup() as main_tg:
-            main_tg.create_task(controller_main(telemetry_sink=telemetry_sink))
             main_tg.create_task(status_main(telemetry_sink=telemetry_sink))
+            main_tg.create_task(controller_main(telemetry_sink=telemetry_sink))
     except KeyboardInterrupt:
         logger.info("Initiating shutdown due to user-request.")
 
