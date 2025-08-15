@@ -198,9 +198,15 @@ async def controller_main(telemetry_sink: asyncio.Queue | None = None):
 
         except KeyboardInterrupt:
             logger.info("Initiating shutdown due to user-request.")
+            raise
+
+        except SystemExit:
+            logger.info("Initiating shutdown due to system exit.")
+            raise
 
         except asyncio.CancelledError:
             logger.info("Initiating shutdown due to cancel.")
+            raise
 
         except BaseException as err:
             logger.error(f"Initiating shutdown due to error {err}.")
