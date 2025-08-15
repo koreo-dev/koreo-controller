@@ -62,23 +62,18 @@ async def aggregator(
         return
 
     while True:
-        try:
-            telemetry_update = await telemetry_sink.get()
-            # We don't want to retry if these fail to process.
-            telemetry_sink.task_done()
+        telemetry_update = await telemetry_sink.get()
+        # We don't want to retry if these fail to process.
+        telemetry_sink.task_done()
 
-            telemetry_data["__last_update__"] = time.monotonic()
+        telemetry_data["__last_update__"] = time.monotonic()
 
-            update_source = telemetry_update.get("source")
-            if not update_source:
-                logging.debug(
-                    f"Malformed controller telemetry data ({telemetry_update})"
-                )
-                continue
+        update_source = telemetry_update.get("source")
+        if not update_source:
+            logging.debug(f"Malformed controller telemetry data ({telemetry_update})")
+            continue
 
-            telemetry_data[update_source] = telemetry_update.get("telemetry")
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            raise
+        telemetry_data[update_source] = telemetry_update.get("telemetry")
 
 
 async def status_main(telemetry_sink: asyncio.Queue | None = None):
@@ -98,20 +93,9 @@ async def status_main(telemetry_sink: asyncio.Queue | None = None):
     config = uvicorn.Config(app, port=PORT, log_level="info")
     server = uvicorn.Server(config)
 
-    try:
-        async with asyncio.TaskGroup() as main_tg:
-            main_tg.create_task(
-                aggregator(
-                    telemetry_sink=telemetry_sink, telemetry_data=telemetry_data
-                ),
-                name="telemetry-aggregator",
-            )
-            main_tg.create_task(server.serve(), name="status-server")
-    except KeyboardInterrupt:
-        logger.info("Initiating shutdown due to user stop.")
-        exit(0)
-
-    except asyncio.CancelledError:
-        logger.info("Initiating shutdown due to cancel.")
-
-    exit(1)
+    async with asyncio.TaskGroup() as main_tg:
+        main_tg.create_task(
+            aggregator(telemetry_sink=telemetry_sink, telemetry_data=telemetry_data),
+            name="telemetry-aggregator",
+        )
+        main_tg.create_task(server.serve(), name="status-server")
