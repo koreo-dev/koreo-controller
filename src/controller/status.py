@@ -56,10 +56,10 @@ def resource_events_status(telemetry: dict):
 
 
 async def aggregator(
-    telemetry_sink: asyncio.Queue | None = asyncio.Queue(),
+    telemetry_sink: asyncio.Queue | None = None,
     telemetry_data: dict | None = None,
 ):
-    if not telemetry_sink or telemetry_data is None:
+    if telemetry_sink is None or telemetry_data is None:
         return
 
     while True:
