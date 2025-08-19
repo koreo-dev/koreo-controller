@@ -54,19 +54,34 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Initiating shutdown due to user-request.")
 
+    except SystemExit:
+        logger.info("Initiating shutdown due to system exit.")
+
     except asyncio.CancelledError:
-        logger.info("Initiating shutdown due to cancel.")
+        logger.debug("Initiating shutdown due to cancellations.")
+
+    except (BaseExceptionGroup, ExceptionGroup) as errs:
+        logger.error("Unhandled exception in system main.")
+        for idx, err in enumerate(errs.exceptions):
+            logger.error(f"Error[{idx}]: {type(err)}({err})")
+        raise
 
 
 if __name__ == "__main__":
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     try:
         uvloop.run(main())
+        logger.info("System Shutdown.")
+
     except KeyboardInterrupt:
-        logger.info("Initiating shutdown due to user stop.")
+        logger.info("Shutdown due to user request.")
         exit(0)
 
-    except asyncio.CancelledError:
-        logger.info("Initiating shutdown due to cancel.")
+    except SystemExit:
+        logger.info("Shutdown due to system exit.")
+        exit(0)
+
+    except BaseException as err:
+        logger.critical("System crash", exc_info=True)
 
     exit(1)

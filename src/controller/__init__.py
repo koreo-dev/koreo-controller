@@ -50,53 +50,19 @@ KOREO_RESOURCES = [
 logger = logging.getLogger("controller")
 
 
-async def _koreo_resource_cache_manager(
-    api: kr8s.asyncio.Api,
-    namespace: str,
-    kind_title: str,
-    resource_class: type,
-    preparer,
-    shutdown_trigger: asyncio.Event,
-):
-    """
-    These are long-term (infinite) cache maintainers that will run in the
-    background to watch for updates to Koreo Resources.
-    """
+async def _done_watcher(guard: asyncio.Event, task: Awaitable):
+    """This is to ensure that critical tasks exiting cause a crash."""
     try:
-        await koreo_cache.maintain_cache(
-            api=api,
-            namespace=namespace,
-            api_version=API_VERSION,
-            plural_kind=f"{kind_title.lower()}s",
-            kind_title=kind_title,
-            resource_class=resource_class,
-            preparer=preparer,
-            reconnect_timeout=RECONNECT_TIMEOUT,
-        )
-    finally:
-        shutdown_trigger.set()
-
-
-async def _controller_engine_wrapper(
-    shutdown_trigger: asyncio.Event, controller: Awaitable
-):
-    try:
-        await controller
-
-    except KeyboardInterrupt:
-        logger.debug(f"Controller engine quit due to user quit.")
-        raise
-
-    except asyncio.CancelledError:
-        logger.info(f"Controller engine quit due to cancel.")
-        raise
-
-    except BaseException as err:
-        logger.error(f"Controller engine quit due to error: {err}.")
-        raise
+        return await task
 
     finally:
-        shutdown_trigger.set()
+        guard.set()
+
+
+class ControllerSystemFailure(Exception):
+    """Controller system process exited unexpectedly."""
+
+    pass
 
 
 async def controller_main(telemetry_sink: asyncio.Queue | None = None):
@@ -155,34 +121,35 @@ async def controller_main(telemetry_sink: asyncio.Queue | None = None):
         # This means the continue was not hit
         return
 
-    async with asyncio.TaskGroup() as controller_tasks:
-        shutdown_trigger = asyncio.Event()
+    try:
+        async with asyncio.TaskGroup() as controller_tasks:
+            shutdown_trigger = asyncio.Event()
 
-        tasks: list[asyncio.Task] = []
-
-        if HOT_LOADING:
-            logger.info("Hot-loading Koreo Resource enabled")
-            for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
-                tasks.append(
+            if HOT_LOADING:
+                logger.info("Hot-loading Koreo Resource enabled")
+                for namespace, kind_title, resource_class, preparer in KOREO_RESOURCES:
                     controller_tasks.create_task(
-                        _koreo_resource_cache_manager(
-                            api=api,
-                            namespace=namespace,
-                            kind_title=kind_title,
-                            resource_class=resource_class,
-                            preparer=preparer,
-                            shutdown_trigger=shutdown_trigger,
+                        _done_watcher(
+                            guard=shutdown_trigger,
+                            task=koreo_cache.maintain_cache(
+                                api=api,
+                                namespace=namespace,
+                                api_version=API_VERSION,
+                                plural_kind=f"{kind_title.lower()}s",
+                                kind_title=kind_title,
+                                resource_class=resource_class,
+                                preparer=preparer,
+                                reconnect_timeout=RECONNECT_TIMEOUT,
+                            ),
                         ),
                         name=f"cache-maintainer-{kind_title.lower()}",
                     )
-                )
 
-        # This is the schedule watcher / dispatcher for workflow crdRefs.
-        tasks.append(
+            # This is the schedule watcher / dispatcher for workflow crdRefs.
             asyncio.create_task(
-                _controller_engine_wrapper(
-                    shutdown_trigger=shutdown_trigger,
-                    controller=workflow_controller_system(
+                _done_watcher(
+                    guard=shutdown_trigger,
+                    task=workflow_controller_system(
                         api=api,
                         namespace=RESOURCE_NAMESPACE,
                         workflow_updates_queue=workflow_updates_queue,
@@ -191,35 +158,43 @@ async def controller_main(telemetry_sink: asyncio.Queue | None = None):
                 ),
                 name="workflow-controller",
             )
-        )
 
-        try:
             await shutdown_trigger.wait()
 
-        except KeyboardInterrupt:
-            logger.info("Initiating shutdown due to user-request.")
-            raise
+            await shutdown_trigger.wait()
+            logger.info("Controller system task exited unexpectedly.")
 
-        except SystemExit:
-            logger.info("Initiating shutdown due to system exit.")
-            raise
+            _task_cancelled = False
+            for task in controller_tasks._tasks:
+                if not task.done():
+                    continue
 
-        except asyncio.CancelledError:
-            logger.info("Initiating shutdown due to cancel.")
-            raise
+                if task.cancelled():
+                    _task_cancelled = True
+                    continue
 
-        except BaseException as err:
-            logger.error(f"Initiating shutdown due to error {err}.")
+                if task.exception() is not None:
+                    return
 
-        except:
-            logger.critical(f"Initiating shutdown due to non-error exception.")
+            if _task_cancelled:
+                raise asyncio.CancelledError(
+                    "Controller system task cancelled unexpectedly."
+                )
 
-        logger.info("Shutting down workers")
-        for task in tasks:
-            task_name = task.get_name()
+            raise ControllerSystemFailure(
+                "Controller system task returned unexpectedly."
+            )
 
-            if not (task.done() or task.cancelling()):
-                task.cancel("System shutdown")
-                logger.info(f"Stopping {task_name}")
+    except KeyboardInterrupt:
+        logger.info("Initiating shutdown due to user-request.")
+        return
 
-        logger.info("Koreo controller is shutdown")
+    except SystemExit:
+        logger.info("Initiating shutdown due to system exit.")
+        return
+
+    except (BaseExceptionGroup, ExceptionGroup) as errs:
+        logger.error("Unhandled exception in controller system main.")
+        for idx, err in enumerate(errs.exceptions):
+            logger.error(f"Error[{idx}]: {type(err)}({err})")
+        raise

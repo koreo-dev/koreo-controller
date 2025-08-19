@@ -1,3 +1,4 @@
+from typing import Awaitable
 import asyncio
 import copy
 import logging
@@ -76,6 +77,23 @@ async def aggregator(
         telemetry_data[update_source] = telemetry_update.get("telemetry")
 
 
+async def _done_watcher(guard: asyncio.Event, task: Awaitable):
+    try:
+        return await task
+
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        guard.set()
+
+
+class StatusServiceFailure(Exception):
+    """Status service process exited unexpectedly."""
+
+    pass
+
+
 async def status_main(telemetry_sink: asyncio.Queue | None = None):
     logger.info("Koreo Status Server Starting")
 
@@ -90,12 +108,59 @@ async def status_main(telemetry_sink: asyncio.Queue | None = None):
         ],
     )
 
-    config = uvicorn.Config(app, port=PORT, log_level="info")
+    config = uvicorn.Config(app, port=PORT, log_level="info", reload=False, workers=1)
     server = uvicorn.Server(config)
 
-    async with asyncio.TaskGroup() as main_tg:
-        main_tg.create_task(
-            aggregator(telemetry_sink=telemetry_sink, telemetry_data=telemetry_data),
-            name="telemetry-aggregator",
-        )
-        main_tg.create_task(server.serve(), name="status-server")
+    shutdown_trigger = asyncio.Event()
+
+    try:
+        async with asyncio.TaskGroup() as main_tg:
+            main_tg.create_task(
+                _done_watcher(
+                    guard=shutdown_trigger,
+                    task=aggregator(
+                        telemetry_sink=telemetry_sink, telemetry_data=telemetry_data
+                    ),
+                ),
+                name="telemetry-aggregator",
+            )
+            main_tg.create_task(
+                _done_watcher(guard=shutdown_trigger, task=server.serve()),
+                name="status-server",
+            )
+
+            await shutdown_trigger.wait()
+            logger.info("Status service task exited unexpectedly.")
+
+            _task_cancelled = False
+            for task in main_tg._tasks:
+                if not task.done():
+                    continue
+
+                if task.cancelled():
+                    _task_cancelled = True
+                    continue
+
+                if task.exception() is not None:
+                    return
+
+            if _task_cancelled:
+                raise asyncio.CancelledError(
+                    "Status service task cancelled unexpectedly."
+                )
+
+            raise StatusServiceFailure("Status service task exited unexpectedly.")
+
+    except KeyboardInterrupt:
+        logger.info("Status service shutdown due to user-request.")
+        return
+
+    except SystemExit:
+        logger.info("Status service shutdown due to system exit.")
+        return
+
+    except (BaseExceptionGroup, ExceptionGroup) as errs:
+        logger.error("Unhandled exception in status process main.")
+        for idx, err in enumerate(errs.exceptions):
+            logger.error(f"Error[{idx}]: {type(err)}({err})")
+        raise
