@@ -24,7 +24,7 @@ RECONNECT_TIMEOUT = 900
 
 API_VERSION = f"{API_GROUP}/{DEFAULT_API_VERSION}"
 
-HOT_LOADING = True
+HOT_LOADING = int(os.environ.get("HOT_LOADING", "1"))
 
 KOREO_NAMESPACE = os.environ.get("KOREO_NAMESPACE", "koreo-testing")
 
