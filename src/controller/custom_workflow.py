@@ -1,3 +1,4 @@
+from typing import Awaitable
 import asyncio
 import logging
 import os
@@ -42,15 +43,31 @@ def _configure_reconciler(
     return wrapped
 
 
+async def _done_watcher(guard: asyncio.Event, task: Awaitable):
+    try:
+        return await task
+
+    finally:
+        guard.set()
+
+
+class WorkflowControllerFailure(Exception):
+    """Workflow controller process exited unexpectedly."""
+
+    pass
+
+
 async def workflow_controller_system(
     api: kr8s.asyncio.Api,
     namespace: str,
     workflow_updates_queue: events.WatchQueue,
+    telemetry_sink: asyncio.Queue | None = None,
 ):
     event_handler, request_queue = reconcile.get_event_handler(namespace=namespace)
 
     event_config = events.Configuration(
         event_handler=event_handler,
+        telemetry_sink=telemetry_sink,
         namespace=namespace,
         max_unknown_errors=10,
         retry_delay_base=30,
@@ -105,22 +122,70 @@ async def workflow_controller_system(
         retry_delay_base=30,
         retry_delay_max=900,
         work_processor=_configure_reconciler(api=managed_resource_api),
+        telemetry_sink=telemetry_sink,
     )
 
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(
-            events.chief_of_the_watch(
-                api=api,
-                tg=tg,
-                watch_requests=workflow_updates_queue,
-                configuration=event_config,
-            ),
-            name="workflow-chief-of-the-watch",
-        )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            shutdown_trigger = asyncio.Event()
 
-        tg.create_task(
-            scheduler.orchestrator(
-                tg=tg, requests=request_queue, configuration=scheduler_config
-            ),
-            name="workflow-reconcile-scheduler",
-        )
+            tg.create_task(
+                _done_watcher(
+                    guard=shutdown_trigger,
+                    task=events.chief_of_the_watch(
+                        api=api,
+                        tg=tg,
+                        watch_requests=workflow_updates_queue,
+                        configuration=event_config,
+                    ),
+                ),
+                name="workflow-chief-of-the-watch",
+            )
+
+            tg.create_task(
+                _done_watcher(
+                    guard=shutdown_trigger,
+                    task=scheduler.orchestrator(
+                        tg=tg, requests=request_queue, configuration=scheduler_config
+                    ),
+                ),
+                name="workflow-reconcile-scheduler",
+            )
+
+            await shutdown_trigger.wait()
+            logger.info("Workflow controller task exited unexpectedly.")
+
+            _task_cancelled = False
+            for task in tg._tasks:
+                if not task.done():
+                    continue
+
+                if task.cancelled():
+                    _task_cancelled = True
+                    continue
+
+                if task.exception() is not None:
+                    return
+
+            if _task_cancelled:
+                raise asyncio.CancelledError(
+                    "Workflow controller task cancelled unexpectedly."
+                )
+
+            raise WorkflowControllerFailure(
+                "Workflow controller task exited unexpectedly."
+            )
+
+    except KeyboardInterrupt:
+        logger.info("Workflow controller shutdown due to user-request.")
+        return
+
+    except SystemExit:
+        logger.info("Workflow controller shutdown due to system exit.")
+        return
+
+    except (BaseExceptionGroup, ExceptionGroup) as errs:
+        logger.error("Unhandled exception in Workflow controller main.")
+        for idx, err in enumerate(errs.exceptions):
+            logger.error(f"Error[{idx}]: {type(err)}({err})")
+        raise

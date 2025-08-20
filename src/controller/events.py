@@ -1,5 +1,6 @@
 from typing import Literal, NamedTuple, Protocol
 import asyncio
+import copy
 import logging
 import random
 
@@ -49,6 +50,8 @@ class Configuration(NamedTuple):
     retry_delay_base: int = 30
     retry_delay_jitter: int = 30
     retry_delay_max: int = 900
+
+    telemetry_sink: asyncio.Queue | None = None
 
 
 def _watch_key(api_version: str, kind: str):
@@ -126,6 +129,52 @@ async def chief_of_the_watch(
                     logger.error(f"Invalid watch event {watch_request}!")
         finally:
             watch_requests.task_done()
+
+        try:
+            _emit_telemetry(
+                configuration=configuration,
+                watch_requests=watch_requests,
+                watchstanders=watchstanders,
+                workflow_watches=workflow_watches,
+                resource_watchers=resource_watchers,
+            )
+        except:
+            logger.exception("Error emitting event-watcher telemetry")
+
+
+def _emit_telemetry(
+    configuration: Configuration,
+    watch_requests: WatchQueue,
+    watchstanders: dict[str, tuple[asyncio.Task, asyncio.Queue]],
+    workflow_watches: dict[str, str],
+    resource_watchers: dict[str, set[str]],
+):
+    if not configuration.telemetry_sink:
+        return
+
+    try:
+        configuration.telemetry_sink.put_nowait(
+            {
+                "source": "event_watcher",
+                "telemetry": {
+                    "pending_watch_requests": watch_requests.qsize(),
+                    "watchstander_status": {
+                        key: {
+                            "done": watchstander.done(),
+                            "cancelled": watchstander.cancelled(),
+                        }
+                        for key, (watchstander, _) in watchstanders.items()
+                    },
+                    "workflow_watches": copy.copy(workflow_watches),
+                    "resource_watchers": {
+                        key: list(watchers)
+                        for key, watchers in resource_watchers.items()
+                    },
+                },
+            }
+        )
+    except asyncio.QueueFull:
+        logger.info("Telemetry queue full, skipping event-watcher telemetry")
 
 
 async def _cancel_watch(

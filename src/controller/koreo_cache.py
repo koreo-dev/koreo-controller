@@ -111,14 +111,24 @@ async def maintain_cache(
                         metadata=resource.metadata,
                         spec=resource.raw.get("spec"),
                     )
-        except (asyncio.CancelledError, KeyboardInterrupt):
+
+        except (SystemExit, KeyboardInterrupt):
+            logger.debug(
+                f"Stopping {plural_kind}.{api_version} cache maintainer watch "
+                "due to system shutdown."
+            )
+            return
+
+        except asyncio.CancelledError:
             raise
+
         except asyncio.TimeoutError:
             logger.debug(
                 f"Restarting {plural_kind}.{api_version} cache maintainer watch "
-                "due to normal reconnect timeout."
+                "due to reconnect timeout."
             )
             error_retries = 0
+
         except BaseException as err:
             error_retries += 1
 
